@@ -1,0 +1,694 @@
+package com.example.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.data.*
+import com.example.model.*
+import com.example.network.MixerDiscoveryEngine
+import com.example.network.OscMessage
+import com.example.network.OscSocketClient
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+
+class IemViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val db = AppDatabase.getDatabase(application)
+    private val repository = IemRepository(db)
+
+    val oscClient = OscSocketClient()
+    val discoveryEngine = MixerDiscoveryEngine()
+
+    // Connection & Mixer Info State
+    val connectionState: StateFlow<MixerModelInfo> = oscClient.connectionState
+    val discoveredMixers: StateFlow<List<MixerModelInfo>> = discoveryEngine.discoveredMixers
+    val isScanning: StateFlow<Boolean> = discoveryEngine.isScanning
+
+    // Profiles & Presets State
+    val profiles: StateFlow<List<UserProfileEntity>> = repository.allProfiles
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _activeProfile = MutableStateFlow<UserProfileEntity?>(null)
+    val activeProfile: StateFlow<UserProfileEntity?> = _activeProfile.asStateFlow()
+
+    private val _activeBusIndex = MutableStateFlow(0) // 0..15 (Bus 1..16)
+    val activeBusIndex: StateFlow<Int> = _activeBusIndex.asStateFlow()
+
+    // Channels & Buses Live State
+    private val _channels = MutableStateFlow<List<ChannelState>>(emptyList())
+    val channels: StateFlow<List<ChannelState>> = _channels.asStateFlow()
+
+    private val _buses = MutableStateFlow<List<MixBusState>>(emptyList())
+    val buses: StateFlow<List<MixBusState>> = _buses.asStateFlow()
+
+    // UI Category Filter ("All", "Favorites", "Groups", "Drums", "Vocals", etc.)
+    private val _selectedCategory = MutableStateFlow("All")
+    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
+
+    // User Role State (Musician vs Engineer)
+    private val _userRole = MutableStateFlow(UserRole(RoleType.MUSICIAN, isUnlocked = false))
+    val userRole: StateFlow<UserRole> = _userRole.asStateFlow()
+
+    // Group Fader Multiplier State
+    private val _groupLevels = MutableStateFlow(
+        mutableMapOf("Drums" to 0.8f, "Vocals" to 0.8f, "Guitars" to 0.8f, "Keys" to 0.8f)
+    )
+    val groupLevels: StateFlow<Map<String, Float>> = _groupLevels.asStateFlow()
+
+    // Custom groups for active profile
+    private val _customGroups = MutableStateFlow<Map<String, List<Int>>>(emptyMap())
+    val customGroups: StateFlow<Map<String, List<Int>>> = _customGroups.asStateFlow()
+
+    // Active Presets for current profile
+    private val _currentPresets = MutableStateFlow<List<MixPresetEntity>>(emptyList())
+    val currentPresets: StateFlow<List<MixPresetEntity>> = _currentPresets.asStateFlow()
+
+    // Notification message flow
+    private val _notificationMessage = MutableStateFlow<String?>(null)
+    val notificationMessage: StateFlow<String?> = _notificationMessage.asStateFlow()
+
+    fun showNotification(msg: String) {
+        _notificationMessage.value = msg
+    }
+
+    fun clearNotification() {
+        _notificationMessage.value = null
+    }
+
+    init {
+        viewModelScope.launch {
+            repository.ensureDefaultProfiles()
+            
+            // Set initial channels and buses from simulator
+            _channels.value = oscClient.simulator.channels.map { it.copy() }
+            _buses.value = oscClient.simulator.buses.map { it.copy() }
+
+            // Set default active profile
+            profiles.collect { list ->
+                if (list.isNotEmpty() && _activeProfile.value == null) {
+                    val defaultProf = list.firstOrNull { it.isDefault } ?: list.first()
+                    selectProfile(defaultProf)
+                }
+            }
+        }
+
+        // Listen for socket notification events
+        viewModelScope.launch {
+            oscClient.notificationEvent.collect { msg ->
+                _notificationMessage.value = msg
+            }
+        }
+
+        // Listen for incoming OSC packets
+        viewModelScope.launch {
+            oscClient.incomingMessages.collect { msg ->
+                parseIncomingOsc(msg)
+            }
+        }
+
+        // Auto-pull channels and mixbuses when mixer connects
+        viewModelScope.launch {
+            connectionState.collect { info ->
+                if (info.status == ConnectionStatus.CONNECTED || info.status == ConnectionStatus.SIMULATION) {
+                    pullChannelsAndBusesFromMixer()
+                }
+            }
+        }
+
+        // Periodically refresh live channel peak meters from simulator/osc
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(100)
+                if (oscClient.isSimulatorActive) {
+                    val currentChs = _channels.value
+                    val simChs = oscClient.simulator.channels
+                    for (i in currentChs.indices) {
+                        if (i in simChs.indices) {
+                            currentChs[i].peakMeter = simChs[i].peakMeter
+                        }
+                    }
+                    _channels.value = currentChs.toList()
+                }
+            }
+        }
+    }
+
+    fun selectProfile(profile: UserProfileEntity) {
+        _activeProfile.value = profile
+        _activeBusIndex.value = (profile.assignedBusId - 1).coerceIn(0, 15)
+
+        applyProfileGroups(profile)
+
+        // Parse favorite channel IDs
+        val favIds = profile.favoriteChannelIdsCsv.split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .toSet()
+
+        _channels.value = _channels.value.map { ch ->
+            ch.copy(isFavorite = ch.id in favIds)
+        }
+
+        // Load presets for profile
+        viewModelScope.launch {
+            repository.getPresetsForProfile(profile.id).collect { list ->
+                _currentPresets.value = list
+            }
+        }
+    }
+
+    private fun applyProfileGroups(profile: UserProfileEntity) {
+        val groups = CustomGroupParser.parseGroups(profile.customGroupsJson)
+        _customGroups.value = groups
+
+        val channelGroupMap = mutableMapOf<Int, String>()
+        groups.forEach { (gName, chIds) ->
+            chIds.forEach { channelGroupMap[it] = gName }
+        }
+
+        _channels.value = _channels.value.map { ch ->
+            val tag = channelGroupMap[ch.id] ?: "All"
+            ch.copy(groupTag = tag)
+        }
+
+        val currentLevels = _groupLevels.value.toMutableMap()
+        groups.keys.forEach { gName ->
+            if (!currentLevels.containsKey(gName)) {
+                currentLevels[gName] = 0.8f
+            }
+        }
+        _groupLevels.value = currentLevels
+    }
+
+    fun toggleGroupsEnabled() {
+        val currentProfile = _activeProfile.value ?: return
+        val newStatus = !currentProfile.groupsEnabled
+        setGroupsEnabled(newStatus)
+    }
+
+    fun setGroupsEnabled(enabled: Boolean) {
+        val currentProfile = _activeProfile.value ?: return
+        val updated = currentProfile.copy(groupsEnabled = enabled)
+        _activeProfile.value = updated
+        if (!enabled && _selectedCategory.value != "All") {
+            _selectedCategory.value = "All"
+        }
+        viewModelScope.launch {
+            repository.saveProfile(updated)
+        }
+    }
+
+    fun updateProfileGroups(newGroups: Map<String, List<Int>>) {
+        val currentProfile = _activeProfile.value ?: return
+        val jsonStr = CustomGroupParser.toJson(newGroups)
+        val updated = currentProfile.copy(customGroupsJson = jsonStr)
+        _activeProfile.value = updated
+        applyProfileGroups(updated)
+        viewModelScope.launch {
+            repository.saveProfile(updated)
+        }
+    }
+
+    fun setAssignedBus(busId: Int) {
+        _activeBusIndex.value = (busId - 1).coerceIn(0, 15)
+        _activeProfile.value?.let { current ->
+            val updated = current.copy(assignedBusId = busId)
+            _activeProfile.value = updated
+            viewModelScope.launch { repository.saveProfile(updated) }
+        }
+    }
+
+    fun updateProfile(
+        profile: UserProfileEntity,
+        name: String,
+        busId: Int,
+        instrumentIcon: String,
+        groupsEnabled: Boolean = profile.groupsEnabled
+    ) {
+        val updated = profile.copy(
+            profileName = name.ifBlank { profile.profileName },
+            assignedBusId = busId.coerceIn(1, 16),
+            instrumentIcon = instrumentIcon,
+            groupsEnabled = groupsEnabled
+        )
+        viewModelScope.launch {
+            repository.saveProfile(updated)
+            if (_activeProfile.value?.id == profile.id) {
+                _activeProfile.value = updated
+                _activeBusIndex.value = (busId - 1).coerceIn(0, 15)
+                if (!groupsEnabled && _selectedCategory.value != "All") {
+                    _selectedCategory.value = "All"
+                }
+            }
+        }
+    }
+
+    fun createProfile(
+        name: String,
+        busId: Int,
+        instrumentIcon: String = "MIC",
+        accentTheme: String = "CYAN",
+        groupsEnabled: Boolean = true
+    ) {
+        val newId = "prof_" + System.currentTimeMillis()
+        val newProf = UserProfileEntity(
+            id = newId,
+            profileName = name.ifBlank { "Musician" },
+            instrumentIcon = instrumentIcon,
+            assignedBusId = busId.coerceIn(1, 16),
+            favoriteChannelIdsCsv = "1,2,5,8,10,13,22",
+            groupsEnabled = groupsEnabled,
+            preferredThemeAccent = accentTheme,
+            isDefault = false
+        )
+        viewModelScope.launch {
+            repository.saveProfile(newProf)
+            selectProfile(newProf)
+        }
+    }
+
+    fun deleteProfile(profile: UserProfileEntity) {
+        viewModelScope.launch {
+            repository.deleteProfile(profile)
+            if (_activeProfile.value?.id == profile.id) {
+                val remaining = repository.allProfiles.first()
+                remaining.firstOrNull { it.id != profile.id }?.let { next ->
+                    selectProfile(next)
+                }
+            }
+        }
+    }
+
+    fun setCategoryFilter(category: String) {
+        _selectedCategory.value = category
+    }
+
+    fun updateChannelBusLevel(channelId: Int, busIndex: Int, newLevel: Float) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val oldCh = list[idx]
+            val newLevels = oldCh.busSendLevels.toMutableList().apply {
+                if (busIndex in indices) this[busIndex] = newLevel
+            }
+            list[idx] = oldCh.copy(busSendLevels = newLevels)
+            _channels.value = list.toList()
+
+            // Send OSC message to mixer
+            val chStr = String.format("%02d", channelId)
+            val busStr = String.format("%02d", busIndex + 1)
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/level", listOf(newLevel)))
+        }
+    }
+
+    fun updateChannelBusPan(channelId: Int, busIndex: Int, newPan: Float) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val oldCh = list[idx]
+            val newPans = oldCh.busSendPans.toMutableList().apply {
+                if (busIndex in indices) this[busIndex] = newPan
+            }
+            list[idx] = oldCh.copy(busSendPans = newPans)
+            _channels.value = list.toList()
+
+            val chStr = String.format("%02d", channelId)
+            val busStr = String.format("%02d", busIndex + 1)
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/pan", listOf(newPan)))
+        }
+    }
+
+    fun toggleChannelBusMute(channelId: Int, busIndex: Int) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val oldCh = list[idx]
+            val currentMute = oldCh.busSendMutes.getOrElse(busIndex) { false }
+            val newMute = !currentMute
+            val newMutes = oldCh.busSendMutes.toMutableList().apply {
+                if (busIndex in indices) this[busIndex] = newMute
+            }
+            list[idx] = oldCh.copy(busSendMutes = newMutes)
+            _channels.value = list.toList()
+
+            val chStr = String.format("%02d", channelId)
+            val busStr = String.format("%02d", busIndex + 1)
+            // In X32 OSC, 1 is ON (unmuted), 0 is OFF (muted)
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/on", listOf(if (newMute) 0 else 1)))
+        }
+    }
+
+    fun updateMasterBusLevel(busIndex: Int, newLevel: Float) {
+        val list = _buses.value.toMutableList()
+        if (busIndex in list.indices) {
+            val bus = list[busIndex].copy(masterLevel = newLevel)
+            list[busIndex] = bus
+            _buses.value = list
+
+            val busStr = String.format("%02d", busIndex + 1)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/fader", listOf(newLevel)))
+        }
+    }
+
+    fun toggleMasterBusMute(busIndex: Int) {
+        val list = _buses.value.toMutableList()
+        if (busIndex in list.indices) {
+            val newMute = !list[busIndex].masterMute
+            val bus = list[busIndex].copy(masterMute = newMute)
+            list[busIndex] = bus
+            _buses.value = list
+
+            val busStr = String.format("%02d", busIndex + 1)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/on", listOf(if (newMute) 0 else 1)))
+        }
+    }
+
+    fun updateGroupSubmixLevel(groupTag: String, newGroupLevel: Float) {
+        val currentMap = _groupLevels.value.toMutableMap()
+        val oldLevel = currentMap[groupTag] ?: 0.8f
+        val delta = newGroupLevel - oldLevel
+        currentMap[groupTag] = newGroupLevel
+        _groupLevels.value = currentMap
+
+        val activeBus = _activeBusIndex.value
+        val list = _channels.value.toMutableList()
+        for (i in list.indices) {
+            if (list[i].groupTag.equals(groupTag, ignoreCase = true)) {
+                val currentSend = list[i].busSendLevels.getOrElse(activeBus) { 0.75f }
+                val adjusted = (currentSend + delta).coerceIn(0f, 1f)
+                val newLevels = list[i].busSendLevels.toMutableList().apply {
+                    if (activeBus in indices) this[activeBus] = adjusted
+                }
+                val ch = list[i].copy(busSendLevels = newLevels)
+                list[i] = ch
+
+                val chStr = String.format("%02d", ch.id)
+                val busStr = String.format("%02d", activeBus + 1)
+                oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/level", listOf(adjusted)))
+            }
+        }
+        _channels.value = list.toList()
+    }
+
+    fun toggleGroupMute(groupTag: String) {
+        val activeBus = _activeBusIndex.value
+        val list = _channels.value.toMutableList()
+        val groupChannels = list.filter { it.groupTag.equals(groupTag, ignoreCase = true) }
+        val anyUnmuted = groupChannels.any { !it.busSendMutes.getOrElse(activeBus) { false } }
+        val targetMute = anyUnmuted
+
+        for (i in list.indices) {
+            if (list[i].groupTag.equals(groupTag, ignoreCase = true)) {
+                val oldCh = list[i]
+                val newMutes = oldCh.busSendMutes.toMutableList().apply {
+                    if (activeBus in indices) this[activeBus] = targetMute
+                }
+                list[i] = oldCh.copy(busSendMutes = newMutes)
+
+                val chStr = String.format("%02d", oldCh.id)
+                val busStr = String.format("%02d", activeBus + 1)
+                oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/on", listOf(if (targetMute) 0 else 1)))
+            }
+        }
+        _channels.value = list.toList()
+    }
+
+    // Engineer Mode Actions
+    fun unlockEngineerMode(pinInput: String): Boolean {
+        if (pinInput == _userRole.value.engineerPin) {
+            _userRole.value = _userRole.value.copy(
+                type = RoleType.ENGINEER,
+                isUnlocked = true
+            )
+            return true
+        }
+        return false
+    }
+
+    fun lockEngineerMode() {
+        _userRole.value = _userRole.value.copy(
+            type = RoleType.MUSICIAN,
+            isUnlocked = false
+        )
+    }
+
+    fun updateEngineerChannelGain(channelId: Int, gainVal: Float) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val ch = list[idx].copy(inputGain = gainVal)
+            list[idx] = ch
+            _channels.value = list
+
+            val chStr = String.format("%02d", channelId)
+            oscClient.sendOscMessage(OscMessage("/headamp/$chStr/gain", listOf(gainVal)))
+        }
+    }
+
+    fun toggleEngineerPhantomPower(channelId: Int) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val new48V = !list[idx].phantomPower
+            val ch = list[idx].copy(phantomPower = new48V)
+            list[idx] = ch
+            _channels.value = list
+
+            val chStr = String.format("%02d", channelId)
+            oscClient.sendOscMessage(OscMessage("/headamp/$chStr/phantom", listOf(if (new48V) 1 else 0)))
+        }
+    }
+
+    fun updateChannelDetails(channelId: Int, name: String, color: X32Color, iconType: String) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val ch = list[idx].copy(name = name, color = color, iconType = iconType)
+            list[idx] = ch
+            _channels.value = list
+
+            val chStr = String.format("%02d", channelId)
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/name", listOf(name)))
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/color", listOf(color.id)))
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/icon", listOf(mapTypeToMixerIconId(iconType))))
+        }
+    }
+
+    // Presets
+    fun savePreset(presetName: String) {
+        val profile = _activeProfile.value ?: return
+        val busIdx = _activeBusIndex.value
+        val levelsCsv = _channels.value.joinToString(",") { it.busSendLevels[busIdx].toString() }
+        val pansCsv = _channels.value.joinToString(",") { it.busSendPans[busIdx].toString() }
+
+        val entity = MixPresetEntity(
+            profileId = profile.id,
+            busId = busIdx + 1,
+            presetName = presetName,
+            channelLevelsCsv = levelsCsv,
+            channelPansCsv = pansCsv
+        )
+        viewModelScope.launch { repository.savePreset(entity) }
+    }
+
+    fun applyPreset(preset: MixPresetEntity) {
+        val levels = preset.channelLevelsCsv.split(",").mapNotNull { it.trim().toFloatOrNull() }
+        val pans = preset.channelPansCsv.split(",").mapNotNull { it.trim().toFloatOrNull() }
+        val busIdx = _activeBusIndex.value
+
+        val list = _channels.value.toMutableList()
+        for (i in list.indices) {
+            var ch = list[i]
+            if (i in levels.indices) {
+                val newLevels = ch.busSendLevels.toMutableList().apply {
+                    if (busIdx in indices) this[busIdx] = levels[i]
+                }
+                ch = ch.copy(busSendLevels = newLevels)
+            }
+            if (i in pans.indices) {
+                val newPans = ch.busSendPans.toMutableList().apply {
+                    if (busIdx in indices) this[busIdx] = pans[i]
+                }
+                ch = ch.copy(busSendPans = newPans)
+            }
+            list[i] = ch
+
+            val chStr = String.format("%02d", ch.id)
+            val busStr = String.format("%02d", busIdx + 1)
+            val sendLvl = ch.busSendLevels.getOrElse(busIdx) { 0.75f }
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/level", listOf(sendLvl)))
+        }
+        _channels.value = list.toList()
+    }
+
+    fun deletePreset(preset: MixPresetEntity) {
+        viewModelScope.launch { repository.deletePreset(preset) }
+    }
+
+    // Network & Scanner triggers
+    fun startNetworkScan() {
+        discoveryEngine.startScan()
+    }
+
+    fun connectToMixer(ip: String, port: Int = 10023) {
+        oscClient.connectToMixer(ip, port)
+        pullChannelsAndBusesFromMixer()
+    }
+
+    fun startSimulatorMode() {
+        oscClient.startSimulatorMode()
+        pullChannelsAndBusesFromMixer()
+    }
+
+    fun pullChannelsAndBusesFromMixer() {
+        viewModelScope.launch {
+            if (oscClient.isSimulatorActive) {
+                _channels.value = oscClient.simulator.channels.map { it.copy() }
+                _buses.value = oscClient.simulator.buses.map { it.copy() }
+            } else {
+                // Request live data from connected hardware mixer over OSC
+                for (chId in 1..32) {
+                    val chStr = String.format("%02d", chId)
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/name"))
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/color"))
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/icon"))
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/fader"))
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/on"))
+                    for (busId in 1..16) {
+                        val busStr = String.format("%02d", busId)
+                        oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/level"))
+                        oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/on"))
+                    }
+                }
+                for (busId in 1..16) {
+                    val busStr = String.format("%02d", busId)
+                    oscClient.sendOscMessage(OscMessage("/bus/$busStr/config/name"))
+                    oscClient.sendOscMessage(OscMessage("/bus/$busStr/config/color"))
+                    oscClient.sendOscMessage(OscMessage("/bus/$busStr/config/icon"))
+                    oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/fader"))
+                    oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/on"))
+                }
+            }
+        }
+    }
+
+    private fun parseIncomingOsc(msg: OscMessage) {
+        val addr = msg.address
+        if (addr.startsWith("/ch/")) {
+            val parts = addr.split("/")
+            if (parts.size >= 3) {
+                val chIdx = parts[2].toIntOrNull()?.minus(1) ?: return
+                if (chIdx in _channels.value.indices) {
+                    val list = _channels.value.toMutableList()
+                    var ch = list[chIdx].copy()
+
+                    if (addr.endsWith("/config/name") && msg.arguments.isNotEmpty()) {
+                        ch.name = msg.arguments[0].toString()
+                    } else if (addr.endsWith("/config/color") && msg.arguments.isNotEmpty()) {
+                        val cId = (msg.arguments[0] as? Number)?.toInt() ?: 6
+                        ch.color = X32Color.fromId(cId)
+                    } else if (addr.endsWith("/config/icon") && msg.arguments.isNotEmpty()) {
+                        ch.iconType = parseMixerIcon(msg.arguments[0])
+                    } else if (addr.endsWith("/mix/fader") && msg.arguments.isNotEmpty()) {
+                        ch.level = (msg.arguments[0] as? Number)?.toFloat() ?: ch.level
+                    } else if (addr.endsWith("/mix/on") && msg.arguments.isNotEmpty()) {
+                        val isOn = (msg.arguments[0] as? Number)?.toInt() == 1
+                        ch.isMuted = !isOn
+                    } else if (parts.size >= 5 && parts[3] == "mix") {
+                        val busIdx = parts[4].toIntOrNull()?.minus(1)
+                        if (busIdx != null && busIdx in 0..15) {
+                            if (addr.endsWith("/level") && msg.arguments.isNotEmpty()) {
+                                val floatVal = (msg.arguments[0] as? Number)?.toFloat() ?: ch.busSendLevels.getOrElse(busIdx) { 0.75f }
+                                val newLevels = ch.busSendLevels.toMutableList().apply { if (busIdx in indices) this[busIdx] = floatVal }
+                                ch = ch.copy(busSendLevels = newLevels)
+                            } else if (addr.endsWith("/on") && msg.arguments.isNotEmpty()) {
+                                val isOn = (msg.arguments[0] as? Number)?.toInt() == 1
+                                val newMutes = ch.busSendMutes.toMutableList().apply { if (busIdx in indices) this[busIdx] = !isOn }
+                                ch = ch.copy(busSendMutes = newMutes)
+                            } else if (addr.endsWith("/pan") && msg.arguments.isNotEmpty()) {
+                                val floatVal = (msg.arguments[0] as? Number)?.toFloat() ?: ch.busSendPans.getOrElse(busIdx) { 0.5f }
+                                val newPans = ch.busSendPans.toMutableList().apply { if (busIdx in indices) this[busIdx] = floatVal }
+                                ch = ch.copy(busSendPans = newPans)
+                            }
+                        }
+                    }
+                    list[chIdx] = ch
+                    _channels.value = list.toList()
+                }
+            }
+        } else if (addr.startsWith("/bus/")) {
+            val parts = addr.split("/")
+            if (parts.size >= 3) {
+                val busIdx = parts[2].toIntOrNull()?.minus(1) ?: return
+                if (busIdx in _buses.value.indices) {
+                    val list = _buses.value.toMutableList()
+                    val bus = list[busIdx].copy()
+
+                    if (addr.endsWith("/config/name") && msg.arguments.isNotEmpty()) {
+                        bus.name = msg.arguments[0].toString()
+                    } else if (addr.endsWith("/config/color") && msg.arguments.isNotEmpty()) {
+                        val cId = (msg.arguments[0] as? Number)?.toInt() ?: 6
+                        bus.color = X32Color.fromId(cId)
+                    } else if (addr.endsWith("/mix/fader") && msg.arguments.isNotEmpty()) {
+                        bus.masterLevel = (msg.arguments[0] as? Number)?.toFloat() ?: bus.masterLevel
+                    } else if (addr.endsWith("/mix/on") && msg.arguments.isNotEmpty()) {
+                        val isOn = (msg.arguments[0] as? Number)?.toInt() == 1
+                        bus.masterMute = !isOn
+                    }
+                    list[busIdx] = bus
+                    _buses.value = list
+                }
+            }
+        }
+    }
+
+    private fun parseMixerIcon(rawIcon: Any): String {
+        return when (rawIcon) {
+            is Number -> {
+                val id = rawIcon.toInt()
+                when (id) {
+                    in 1..12, in 50..55 -> "DRUM"
+                    in 13..17 -> "BASS"
+                    in 18..22, in 56..60 -> "GUITAR"
+                    in 23..28, in 61..65 -> "KEYBOARD"
+                    in 29..36, in 66..70 -> "MIC"
+                    in 37..40 -> "HORN"
+                    in 41..45 -> "FX"
+                    in 46..49 -> "AUDIO"
+                    else -> "MIC"
+                }
+            }
+            else -> {
+                val str = rawIcon.toString().uppercase()
+                when {
+                    str.contains("DRUM") || str.contains("KICK") || str.contains("SNARE") || str.contains("PERC") -> "DRUM"
+                    str.contains("BASS") -> "BASS"
+                    str.contains("GTR") || str.contains("GUITAR") -> "GUITAR"
+                    str.contains("KEY") || str.contains("PIANO") || str.contains("SYNTH") -> "KEYBOARD"
+                    str.contains("MIC") || str.contains("VOX") || str.contains("VOCAL") -> "MIC"
+                    str.contains("SAX") || str.contains("HORN") || str.contains("BRASS") -> "HORN"
+                    str.contains("FX") || str.contains("REV") || str.contains("DEL") -> "FX"
+                    else -> "MIC"
+                }
+            }
+        }
+    }
+
+    private fun mapTypeToMixerIconId(iconType: String): Int {
+        return when (iconType.uppercase()) {
+            "DRUM" -> 1
+            "BASS" -> 13
+            "GUITAR" -> 18
+            "KEYBOARD" -> 23
+            "MIC" -> 29
+            "HORN" -> 37
+            "FX" -> 41
+            "AUDIO" -> 46
+            else -> 29
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        oscClient.release()
+    }
+}

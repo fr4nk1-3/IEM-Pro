@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Frame / Console Body -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M24,24 h60 a6,6 0 0,1 6,6 v48 a6,6 0 0,1 -6,6 h-60 a6,6 0 0,1 -6,-6 v-48 a6,6 0 0,1 6,-6 Z" />
+    
+    <!-- Fader Slots -->
+    <path
+        android:strokeColor="#374151"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M36,36 v36 M54,36 v36 M72,36 v36" />
+        
+    <!-- Fader LED Meter Highlights -->
+    <path
+        android:strokeColor="#10B981"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M32,60 v10 M50,48 v22 M68,54 v16" />
+    <path
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M32,54 v4 M50,42 v4 M68,48 v4" />
+    <path
+        android:strokeColor="#EF4444"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M50,38 v2" />
+
+    <!-- Fader Knobs (Cyan & Amber) -->
+    <!-- Knob 1 -->
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M30,56 h12 a2,2 0 0,1 2,2 v6 a2,2 0 0,1 -2,2 h-12 a2,2 0 0,1 -2,-2 v-6 a2,2 0 0,1 2,-2 Z" />
+    <!-- Knob 2 -->
+    <path
+        android:fillColor="#3B82F6"
+        android:pathData="M48,42 h12 a2,2 0 0,1 2,2 v6 a2,2 0 0,1 -2,2 h-12 a2,2 0 0,1 -2,-2 v-6 a2,2 0 0,1 2,-2 Z" />
+    <!-- Knob 3 -->
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M66,50 h12 a2,2 0 0,1 2,2 v6 a2,2 0 0,1 -2,2 h-12 a2,2 0 0,1 -2,-2 v-6 a2,2 0 0,1 2,-2 Z" />
+
+    <!-- Top Status Indicator LEDs -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M34,30 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0" />
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M52,30 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0" />
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M70,30 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0" />
+</vector>

@@ -1,0 +1,171 @@
+package com.example.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.model.MixBusState
+import com.example.ui.theme.*
+
+@Composable
+fun BusMasterFaderCard(
+    bus: MixBusState,
+    onMasterLevelChange: (Float) -> Unit,
+    onMasterMuteToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    cardWidth: Dp = 120.dp
+) {
+    val haptic = LocalHapticFeedback.current
+    val accentColor = if (bus.masterMute) NeonRose else NeonAmber
+    val isCompact = cardWidth < 85.dp
+
+    Card(
+        modifier = modifier
+            .width(cardWidth)
+            .fillMaxHeight()
+            .padding(horizontal = 1.dp, vertical = 2.dp)
+            .border(
+                width = 1.5.dp,
+                color = if (bus.masterMute) NeonRose.copy(alpha = 0.6f) else NeonAmber.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(10.dp)
+            ),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .padding(if (isCompact) 4.dp else 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Top Header: Bus Master Label
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(accentColor.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = if (isCompact) 3.dp else 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = "Bus Master",
+                        tint = accentColor,
+                        modifier = Modifier.size(if (isCompact) 12.dp else 14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = "BUS ${bus.id}",
+                        fontSize = if (isCompact) 9.sp else 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor
+                    )
+                }
+                if (bus.isStereoLinked) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(NeonCyan.copy(alpha = 0.3f))
+                            .padding(horizontal = 3.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "ST",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = NeonCyan
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            // Bus Name & Output Readout
+            Text(
+                text = bus.name,
+                fontSize = if (isCompact) 10.sp else 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            // Master dB Display
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(DarkBackground)
+                    .padding(vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (bus.masterMute) "MUTED" else bus.getMasterDbString(),
+                    fontSize = if (isCompact) 10.sp else 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (bus.masterMute) NeonRose else NeonCyan
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Master Fader
+            LargeTouchFader(
+                value = bus.masterLevel,
+                onValueChange = onMasterLevelChange,
+                peakMeter = if (bus.masterMute) 0.0f else (bus.masterLevel * 0.95f),
+                faderColor = accentColor,
+                width = if (isCompact) 36.dp else 50.dp,
+                showMeter = true,
+                modifier = Modifier.weight(1f)
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Bus Master Mute Button
+            Button(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onMasterMuteToggle()
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (bus.masterMute) NeonRose else DarkSurfaceVariant,
+                    contentColor = if (bus.masterMute) Color.White else TextPrimary
+                ),
+                contentPadding = PaddingValues(vertical = 1.dp, horizontal = 2.dp),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp)
+            ) {
+                Text(
+                    text = if (isCompact) (if (bus.masterMute) "MUTED" else "MUTE") else (if (bus.masterMute) "MASTER MUTED" else "MUTE MASTER"),
+                    fontSize = if (isCompact) 9.sp else 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}

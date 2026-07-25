@@ -1,0 +1,110 @@
+package com.example
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import com.example.model.ConnectionStatus
+import com.example.ui.IemViewModel
+import com.example.ui.screens.*
+import com.example.ui.theme.IemMixerTheme
+
+enum class Screen {
+    DASHBOARD,
+    DISCOVERY,
+    PROFILES,
+    ENGINEER,
+    DIAGNOSTICS
+}
+
+class MainActivity : ComponentActivity() {
+
+    private val viewModel: IemViewModel by viewModels()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+
+        setContent {
+            IemMixerTheme {
+                var currentScreen by remember { mutableStateOf(Screen.DASHBOARD) }
+                val snackbarHostState = remember { SnackbarHostState() }
+                val notificationMessage by viewModel.notificationMessage.collectAsState()
+                val connectionInfo by viewModel.connectionState.collectAsState()
+                val isConnected = connectionInfo.status == ConnectionStatus.CONNECTED || connectionInfo.status == ConnectionStatus.SIMULATION
+
+                val navigateToProfilesWithCheck = {
+                    if (isConnected) {
+                        currentScreen = Screen.PROFILES
+                    } else {
+                        viewModel.showNotification("Mixer connection required before profile setup!")
+                        currentScreen = Screen.DISCOVERY
+                    }
+                }
+
+                LaunchedEffect(notificationMessage) {
+                    notificationMessage?.let { msg ->
+                        snackbarHostState.showSnackbar(
+                            message = msg,
+                            duration = SnackbarDuration.Short
+                        )
+                        viewModel.clearNotification()
+                    }
+                }
+
+                BackHandler(enabled = currentScreen != Screen.DASHBOARD) {
+                    currentScreen = Screen.DASHBOARD
+                }
+
+                Scaffold(
+                    snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                    modifier = Modifier.fillMaxSize()
+                ) { innerPadding ->
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        when (currentScreen) {
+                            Screen.DASHBOARD -> DashboardScreen(
+                                viewModel = viewModel,
+                                onOpenDiscovery = { currentScreen = Screen.DISCOVERY },
+                                onOpenProfiles = navigateToProfilesWithCheck,
+                                onOpenEngineer = { currentScreen = Screen.ENGINEER },
+                                onOpenDiagnostics = { currentScreen = Screen.DIAGNOSTICS }
+                            )
+                            Screen.DISCOVERY -> DiscoveryScreen(
+                                viewModel = viewModel,
+                                onBackToDashboard = { currentScreen = Screen.DASHBOARD },
+                                onNavigateToProfiles = navigateToProfilesWithCheck
+                            )
+                            Screen.PROFILES -> ProfilesScreen(
+                                viewModel = viewModel,
+                                onBackToDashboard = { currentScreen = Screen.DASHBOARD },
+                                onOpenDiscovery = { currentScreen = Screen.DISCOVERY }
+                            )
+                            Screen.ENGINEER -> EngineerScreen(
+                                viewModel = viewModel,
+                                onBackToDashboard = { currentScreen = Screen.DASHBOARD }
+                            )
+                            Screen.DIAGNOSTICS -> DiagnosticsScreen(
+                                viewModel = viewModel,
+                                onBackToDashboard = { currentScreen = Screen.DASHBOARD }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

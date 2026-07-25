@@ -1,0 +1,6 @@
+{
+  "name": "IEM Mixer",
+  "description": "Wireless In-Ear Monitor (IEM) mix control for Behringer X32/M32 and X-Air digital mixers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
