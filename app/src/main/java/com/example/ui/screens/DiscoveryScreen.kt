@@ -82,7 +82,8 @@ fun DiscoveryScreen(
 
     var isManufacturerDropdownExpanded by remember { mutableStateOf(false) }
     var isModelDropdownExpanded by remember { mutableStateOf(false) }
-    var manualIp by remember { mutableStateOf("192.168.1.100") }
+    val savedManualIp by viewModel.savedManualIp.collectAsState()
+    var manualIp by remember(savedManualIp) { mutableStateOf(savedManualIp) }
     var userInitiatedConnect by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentConnection.status) {
@@ -345,7 +346,10 @@ fun DiscoveryScreen(
 
                         OutlinedTextField(
                             value = manualIp,
-                            onValueChange = { manualIp = it },
+                            onValueChange = {
+                                manualIp = it
+                                viewModel.setManualIp(it)
+                            },
                             label = { Text("IP Address") },
                             placeholder = { Text("192.168.1.100") },
                             singleLine = true,
@@ -413,20 +417,20 @@ fun DiscoveryScreen(
                             if (currentConnection.status == ConnectionStatus.CONNECTING) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(20.dp),
-                                    color = Color.Black,
+                                    color = Color.White,
                                     strokeWidth = 2.dp
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "SEARCHING FOR MIXER...",
-                                    color = Color.Black,
+                                    color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
                             } else {
                                 Text(
                                     text = "CONNECT TO ${selectedMixerPreset.modelName.uppercase()}",
-                                    color = Color.Black,
+                                    color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -493,7 +497,7 @@ fun DiscoveryScreen(
                                         .background(NeonEmerald)
                                         .padding(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
-                                    Text("CONNECTED", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    Text("CONNECTED", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                             } else {
                                 OutlinedButton(

@@ -14,6 +14,9 @@ interface ProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateProfile(profile: UserProfileEntity)
 
+    @Query("UPDATE user_profiles SET isDefault = CASE WHEN id = :activeId THEN 1 ELSE 0 END")
+    suspend fun setActiveDefaultProfile(activeId: String)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(profiles: List<UserProfileEntity>)
 

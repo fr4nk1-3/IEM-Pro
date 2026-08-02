@@ -78,6 +78,10 @@ class IemRepository(private val db: AppDatabase) {
         db.profileDao().insertOrUpdateProfile(profile)
     }
 
+    suspend fun setActiveDefaultProfile(profileId: String) {
+        db.profileDao().setActiveDefaultProfile(profileId)
+    }
+
     suspend fun deleteProfile(profile: UserProfileEntity) {
         db.profileDao().deleteProfile(profile)
     }

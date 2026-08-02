@@ -1,6 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +31,7 @@ fun GroupFaderCard(
     isGroupMuted: Boolean = false,
     onGroupMuteToggle: (() -> Unit)? = null,
     accentColor: Color = NeonAmber,
+    peakMeter: Float = -1f,
     modifier: Modifier = Modifier,
     cardWidth: Dp = 120.dp
 ) {
@@ -41,6 +44,7 @@ fun GroupFaderCard(
             .fillMaxHeight()
             .padding(horizontal = 1.dp, vertical = 2.dp),
         colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        border = BorderStroke(1.dp, DarkBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(10.dp)
     ) {
@@ -91,6 +95,7 @@ fun GroupFaderCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
                     .background(DarkBackground)
+                    .border(0.5.dp, DarkBorder, RoundedCornerShape(4.dp))
                     .padding(vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -104,13 +109,15 @@ fun GroupFaderCard(
 
             Spacer(modifier = Modifier.height(3.dp))
 
+            val groupPeakMeter = if (isGroupMuted) 0.0f else if (peakMeter >= 0f) peakMeter else (groupLevel * 0.85f).coerceIn(0f, 1f)
+
             LargeTouchFader(
                 value = groupLevel,
                 onValueChange = onGroupLevelChange,
-                peakMeter = 0.5f,
+                peakMeter = groupPeakMeter,
                 faderColor = if (isGroupMuted) DarkBorder else accentColor,
                 width = if (isCompact) 36.dp else 50.dp,
-                showMeter = false,
+                showMeter = true,
                 modifier = Modifier.weight(1f)
             )
 

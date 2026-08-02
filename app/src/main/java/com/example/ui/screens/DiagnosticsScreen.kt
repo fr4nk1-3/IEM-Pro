@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.ConnectionStatus
 import com.example.network.OscMessage
 import com.example.ui.IemViewModel
 import com.example.ui.theme.*
@@ -83,6 +84,18 @@ fun DiagnosticsScreen(
                     DiagnosticItem("Firmware Version", connectionInfo.firmware)
                     DiagnosticItem("Connection Status", connectionInfo.status.name)
                     DiagnosticItem("Latency Ping", "${connectionInfo.latencyMs} ms")
+
+                    if (connectionInfo.status == ConnectionStatus.DISCONNECTED) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = { viewModel.reconnectToMixer() },
+                            colors = ButtonDefaults.buttonColors(containerColor = NeonRose),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Reconnect to ${connectionInfo.ip}", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
 

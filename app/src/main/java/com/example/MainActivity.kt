@@ -22,6 +22,8 @@ import com.example.ui.theme.IemMixerTheme
 enum class Screen {
     DASHBOARD,
     DISCOVERY,
+    ACCOUNT_SETUP,
+    MIXBUS_SELECTION,
     PROFILES,
     ENGINEER,
     DIAGNOSTICS
@@ -36,12 +38,23 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            IemMixerTheme {
+            val appThemeMode by viewModel.appThemeMode.collectAsState()
+
+            IemMixerTheme(themeMode = appThemeMode) {
                 var currentScreen by remember { mutableStateOf(Screen.DASHBOARD) }
                 val snackbarHostState = remember { SnackbarHostState() }
                 val notificationMessage by viewModel.notificationMessage.collectAsState()
                 val connectionInfo by viewModel.connectionState.collectAsState()
                 val isConnected = connectionInfo.status == ConnectionStatus.CONNECTED || connectionInfo.status == ConnectionStatus.SIMULATION
+
+                val navigateToAccountSetupWithCheck = {
+                    if (isConnected) {
+                        currentScreen = Screen.ACCOUNT_SETUP
+                    } else {
+                        viewModel.showNotification("Mixer connection required before account setup!")
+                        currentScreen = Screen.DISCOVERY
+                    }
+                }
 
                 val navigateToProfilesWithCheck = {
                     if (isConnected) {
@@ -86,7 +99,17 @@ class MainActivity : ComponentActivity() {
                             Screen.DISCOVERY -> DiscoveryScreen(
                                 viewModel = viewModel,
                                 onBackToDashboard = { currentScreen = Screen.DASHBOARD },
-                                onNavigateToProfiles = navigateToProfilesWithCheck
+                                onNavigateToProfiles = navigateToAccountSetupWithCheck
+                            )
+                            Screen.ACCOUNT_SETUP -> AccountSetupScreen(
+                                viewModel = viewModel,
+                                onProceedToMixbusSelection = { currentScreen = Screen.MIXBUS_SELECTION },
+                                onBackToDiscovery = { currentScreen = Screen.DISCOVERY }
+                            )
+                            Screen.MIXBUS_SELECTION -> MixbusSelectionScreen(
+                                viewModel = viewModel,
+                                onProceedToDashboard = { currentScreen = Screen.DASHBOARD },
+                                onBackToDiscovery = { currentScreen = Screen.ACCOUNT_SETUP }
                             )
                             Screen.PROFILES -> ProfilesScreen(
                                 viewModel = viewModel,

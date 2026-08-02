@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.AppThemeMode
 import com.example.model.ConnectionStatus
 import com.example.model.MixBusState
 import com.example.model.MixerModelInfo
@@ -31,13 +32,18 @@ fun ConnectionHeader(
     role: UserRole,
     buses: List<MixBusState> = emptyList(),
     activeBusIndex: Int = 0,
+    appThemeMode: AppThemeMode = AppThemeMode.GLASSMORPHISM,
     onSelectBus: (Int) -> Unit = {},
+    onSelectThemeMode: (AppThemeMode) -> Unit = {},
     onOpenDiscovery: () -> Unit,
     onOpenProfiles: () -> Unit,
     onToggleEngineer: () -> Unit,
     onOpenDiagnostics: () -> Unit,
-    onSyncMixer: () -> Unit = {}
+    onSyncMixer: () -> Unit = {},
+    onReconnect: () -> Unit = {}
 ) {
+    var showThemeMenu by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -69,7 +75,7 @@ fun ConnectionHeader(
                 )
             }
 
-            // Right side tools: Profile Switcher, Sync, Diagnostics, Engineer Lock
+            // Right side tools: Profile Switcher, Theme Switcher, Diagnostics, Engineer Lock
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // User Profile Switcher
                 Box(
@@ -95,6 +101,68 @@ fun ConnectionHeader(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+
+                // Theme Mode Switcher
+                Box {
+                    IconButton(
+                        onClick = { showThemeMenu = true },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = when (appThemeMode) {
+                                AppThemeMode.CQ_MIXPAD -> Icons.Default.Equalizer
+                                AppThemeMode.LIGHT -> Icons.Default.LightMode
+                                AppThemeMode.GLASSMORPHISM -> Icons.Default.AutoAwesome
+                            },
+                            contentDescription = "Theme Mode",
+                            tint = if (appThemeMode == AppThemeMode.CQ_MIXPAD || appThemeMode == AppThemeMode.GLASSMORPHISM) NeonCyan else TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showThemeMenu,
+                        onDismissRequest = { showThemeMenu = false },
+                        modifier = Modifier.background(DarkSurface)
+                    ) {
+                        AppThemeMode.entries.forEach { mode ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = when (mode) {
+                                                AppThemeMode.CQ_MIXPAD -> Icons.Default.Equalizer
+                                                AppThemeMode.LIGHT -> Icons.Default.LightMode
+                                                AppThemeMode.GLASSMORPHISM -> Icons.Default.AutoAwesome
+                                            },
+                                            contentDescription = null,
+                                            tint = if (appThemeMode == mode) NeonCyan else TextSecondary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(
+                                                text = mode.displayName,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (appThemeMode == mode) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (appThemeMode == mode) NeonCyan else TextPrimary
+                                            )
+                                            Text(
+                                                text = mode.description,
+                                                fontSize = 10.sp,
+                                                color = TextMuted
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    onSelectThemeMode(mode)
+                                    showThemeMenu = false
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -124,31 +192,32 @@ fun ConnectionHeader(
             }
         }
 
-        // Full-Width Connected Mixer Selector Button
+        // Full-Width Connected Mixer Selector Bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 2.dp)
         ) {
-            Button(
-                onClick = onOpenDiscovery,
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DarkSurfaceVariant
-                ),
+                color = DarkSurfaceVariant,
                 shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, DarkBorder),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                border = BorderStroke(1.dp, if (mixerInfo.status == ConnectionStatus.DISCONNECTED) NeonRose.copy(alpha = 0.6f) else DarkBorder)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onOpenDiscovery() }
                     ) {
                         Box(
                             modifier = Modifier
@@ -182,19 +251,60 @@ fun ConnectionHeader(
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "CHANGE",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = NeonCyan
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = "Open Mixer Settings",
-                            tint = NeonCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        if (mixerInfo.status == ConnectionStatus.DISCONNECTED) {
+                            Surface(
+                                onClick = onReconnect,
+                                color = NeonRose,
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "Reconnect",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "RECONNECT",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        } else if (mixerInfo.status == ConnectionStatus.CONNECTING || mixerInfo.status == ConnectionStatus.RECONNECTING) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = NeonAmber,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Row(
+                            modifier = Modifier.clickable { onOpenDiscovery() },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "CHANGE",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NeonCyan
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(
+                                Icons.Default.ChevronRight,
+                                contentDescription = "Open Mixer Settings",
+                                tint = NeonCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -118,6 +118,7 @@ fun BusMasterFaderCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
                     .background(DarkBackground)
+                    .border(0.5.dp, DarkBorder, RoundedCornerShape(4.dp))
                     .padding(vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -135,7 +136,7 @@ fun BusMasterFaderCard(
             LargeTouchFader(
                 value = bus.masterLevel,
                 onValueChange = onMasterLevelChange,
-                peakMeter = if (bus.masterMute) 0.0f else (bus.masterLevel * 0.95f),
+                peakMeter = if (bus.masterMute) 0.0f else bus.peakMeter,
                 faderColor = accentColor,
                 width = if (isCompact) 36.dp else 50.dp,
                 showMeter = true,

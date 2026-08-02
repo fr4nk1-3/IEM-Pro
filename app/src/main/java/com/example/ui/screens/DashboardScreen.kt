@@ -1,8 +1,10 @@
 package com.example.ui.screens
 
+import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,9 +41,14 @@ fun DashboardScreen(
     onOpenEngineer: () -> Unit,
     onOpenDiagnostics: () -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var isFaderExpanded by remember { mutableStateOf(false) }
+
     val mixerInfo by viewModel.connectionState.collectAsState()
     val profiles by viewModel.profiles.collectAsState()
     val activeProfile by viewModel.activeProfile.collectAsState()
+    val appThemeMode by viewModel.appThemeMode.collectAsState()
     val activeBusIndex by viewModel.activeBusIndex.collectAsState()
     val channels by viewModel.channels.collectAsState()
     val buses by viewModel.buses.collectAsState()
@@ -47,8 +56,6 @@ fun DashboardScreen(
     val userRole by viewModel.userRole.collectAsState()
     val groupLevels by viewModel.groupLevels.collectAsState()
     val customGroups by viewModel.customGroups.collectAsState()
-
-    var showBusDropdown by remember { mutableStateOf(false) }
 
     val channelListState = rememberLazyListState()
     val groupListState = rememberLazyListState()
@@ -97,40 +104,90 @@ fun DashboardScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { _, dragAmount ->
+                    if (dragAmount < -20f) {
+                        isFaderExpanded = true
+                    } else if (dragAmount > 20f) {
+                        isFaderExpanded = false
+                    }
+                }
+            }
     ) {
-        // Top Connection & Profile Header
-        ConnectionHeader(
-            mixerInfo = mixerInfo,
-            assignedBusName = busName,
-            profileName = activeProfile?.profileName ?: "Musician",
-            role = userRole,
-            buses = buses,
-            activeBusIndex = activeBusIndex,
-            onSelectBus = { busIdx -> viewModel.setAssignedBus(busIdx + 1) },
-            onOpenDiscovery = onOpenDiscovery,
-            onOpenProfiles = onOpenProfiles,
-            onToggleEngineer = onOpenEngineer,
-            onOpenDiagnostics = onOpenDiagnostics,
-            onSyncMixer = { viewModel.pullChannelsAndBusesFromMixer() }
-        )
-
-        // Master Monitor Bar & Quick Presets
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(DarkSurface)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        if (isFaderExpanded) {
+            // Sleek minimal top bar in expanded mode
+            Surface(
+                color = DarkSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isFaderExpanded = false }
+                    .padding(vertical = 4.dp, horizontal = 12.dp)
             ) {
-                // Master Bus Selector, Volume / Mute
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Collapse Faders",
+                            tint = NeonCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "EXPANDED FADERS • MIXBUS ${activeBusIndex + 1}: $busName",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonCyan
+                        )
+                    }
+                    Text(
+                        text = "TAP OR SWIPE DOWN TO COLLAPSE",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextMuted
+                    )
+                }
+            }
+            HorizontalDivider(color = DarkBorder, thickness = 0.5.dp)
+        } else {
+            // Top Connection & Profile Header
+            ConnectionHeader(
+                mixerInfo = mixerInfo,
+                assignedBusName = busName,
+                profileName = activeProfile?.profileName ?: "Musician",
+                role = userRole,
+                buses = buses,
+                activeBusIndex = activeBusIndex,
+                appThemeMode = appThemeMode,
+                onSelectBus = { busIdx -> viewModel.setAssignedBus(busIdx + 1) },
+                onSelectThemeMode = { mode -> viewModel.setAppThemeMode(mode) },
+                onOpenDiscovery = onOpenDiscovery,
+                onOpenProfiles = onOpenProfiles,
+                onToggleEngineer = onOpenEngineer,
+                onOpenDiagnostics = onOpenDiagnostics,
+                onSyncMixer = { viewModel.pullChannelsAndBusesFromMixer() },
+                onReconnect = { viewModel.reconnectToMixer() }
+            )
+
+            // Master Monitor Bar & Quick Presets
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkSurface)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Locked Master MixBus Badge (Switching restricted to Profile Settings)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
-                            onClick = { showBusDropdown = true },
+                            onClick = onOpenProfiles,
                             color = DarkSurfaceVariant,
                             shape = RoundedCornerShape(6.dp),
                             border = BorderStroke(1.dp, NeonAmber.copy(alpha = 0.6f)),
@@ -140,107 +197,96 @@ fun DashboardScreen(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "MIXBUS:",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextSecondary
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = "MixBus Locked",
+                                    tint = NeonAmber,
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Bus ${activeBusIndex + 1}: ${activeBus?.name ?: "MixBus"}",
+                                    text = "MIXBUS ${activeBusIndex + 1}: ${activeBus?.name ?: "MixBus"}",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = NeonAmber,
                                     maxLines = 1
                                 )
-                                Spacer(modifier = Modifier.width(2.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
-                                    Icons.Default.ArrowDropDown,
-                                    contentDescription = "Select MixBus",
-                                    tint = NeonAmber,
-                                    modifier = Modifier.size(16.dp)
+                                    Icons.Default.Settings,
+                                    contentDescription = "Change in Settings",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
 
-                        DropdownMenu(
-                            expanded = showBusDropdown,
-                            onDismissRequest = { showBusDropdown = false },
-                            modifier = Modifier
-                                .width(220.dp)
-                                .background(DarkSurfaceVariant)
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Text(
+                            text = activeBus?.getMasterDbString() ?: "0 dB",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonCyan
+                        )
+                    }
+
+                    if (isLandscape) {
+                        Surface(
+                            onClick = { isFaderExpanded = true },
+                            color = DarkSurfaceVariant,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(0.5.dp, NeonCyan.copy(alpha = 0.5f))
                         ) {
-                            buses.forEachIndexed { index, bus ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text(
-                                                text = "Bus ${bus.id}: ${bus.name}",
-                                                fontSize = 12.sp,
-                                                fontWeight = if (index == activeBusIndex) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (index == activeBusIndex) NeonCyan else TextPrimary
-                                            )
-                                            if (index == activeBusIndex) {
-                                                Icon(
-                                                    Icons.Default.Check,
-                                                    contentDescription = "Selected",
-                                                    tint = NeonCyan,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.setAssignedBus(bus.id)
-                                        showBusDropdown = false
-                                    }
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Swipe up to expand",
+                                    tint = NeonCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "SWIPE UP TO EXPAND",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonCyan
                                 )
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Text(
-                        text = activeBus?.getMasterDbString() ?: "0 dB",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = NeonCyan
-                    )
                 }
             }
-        }
 
-        HorizontalDivider(color = DarkBorder, thickness = 0.5.dp)
+            HorizontalDivider(color = DarkBorder, thickness = 0.5.dp)
 
-        // Category Filter Tabs Row
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(DarkSurface)
-                .padding(vertical = 6.dp, horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            items(categories) { category ->
-                val isSelected = selectedCategory == category
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (isSelected) NeonCyan else DarkSurfaceVariant)
-                        .clickable { viewModel.setCategoryFilter(category) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = category,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) Color.Black else TextPrimary
-                    )
+            // Category Filter Tabs Row
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkSurface)
+                    .padding(vertical = 6.dp, horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(categories) { category ->
+                    val isSelected = selectedCategory == category
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isSelected) NeonCyan else DarkSurfaceVariant)
+                            .clickable { viewModel.setCategoryFilter(category) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = category,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else TextPrimary
+                        )
+                    }
                 }
             }
         }
@@ -282,9 +328,8 @@ fun DashboardScreen(
                                 contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
                                 horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                items(groupLevels.entries.toList()) { entry ->
-                                    val groupTag = entry.key
-                                    val currentLvl = entry.value
+                                items(customGroups.keys.toList()) { groupTag ->
+                                    val currentLvl = groupLevels[groupTag] ?: 0.8f
                                     val groupChIds = customGroups[groupTag]
                                     val groupChannels = if (groupChIds != null) channels.filter { groupChIds.contains(it.id) } else channels.filter { it.groupTag.equals(groupTag, ignoreCase = true) }
                                     val matchingChs = groupChannels.size
@@ -294,6 +339,7 @@ fun DashboardScreen(
                                         groupName = groupTag,
                                         channelCount = matchingChs,
                                         groupLevel = currentLvl,
+                                        peakMeter = if (groupChannels.isEmpty() || isGroupMuted) 0f else (groupChannels.map { ch -> if (ch.isMuted) 0f else ch.peakMeter * ch.busSendLevels.getOrElse(activeBusIndex) { 0.75f } }.average().toFloat() * currentLvl).coerceIn(0f, 1f),
                                         onGroupLevelChange = { newLvl ->
                                             viewModel.updateGroupSubmixLevel(groupTag, newLvl)
                                         },
@@ -364,10 +410,12 @@ fun DashboardScreen(
 
                     // Bottom Fader Bank Navigation Bar (Groups of 4)
                     val activeListState = if (selectedCategory == "Groups") groupListState else channelListState
-                    val totalCount = if (selectedCategory == "Groups") groupLevels.size else filteredChannels.size
+                    val totalCount = if (selectedCategory == "Groups") customGroups.size else filteredChannels.size
                     val visibleCount = activeListState.layoutInfo.visibleItemsInfo.size
-                    val maxScrollIndex = (totalCount - visibleCount).coerceAtLeast(0)
                     val firstVisible = activeListState.firstVisibleItemIndex
+                    val lastVisibleIndex = activeListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: firstVisible
+                    val maxScrollIndex = (totalCount - 1).coerceAtLeast(0)
+                    val canScrollNext = lastVisibleIndex < totalCount - 1 || firstVisible < maxScrollIndex
 
                     if (totalCount > 0) {
                         Surface(
@@ -381,114 +429,45 @@ fun DashboardScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 4.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 // Previous bank / item button
                                 IconButton(
                                     onClick = {
                                         coroutineScope.launch {
-                                            val prev = (activeListState.firstVisibleItemIndex - 4).coerceAtLeast(0)
+                                            val prev = (firstVisible - 4).coerceAtLeast(0)
                                             activeListState.animateScrollToItem(prev)
                                         }
                                     },
                                     enabled = firstVisible > 0,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ChevronLeft,
-                                        contentDescription = "Bank Left",
+                                        contentDescription = "Scroll Left",
                                         tint = if (firstVisible > 0) NeonCyan else TextMuted,
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(28.dp)
                                     )
-                                }
-
-                                Text(
-                                    text = "BANKS:",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextMuted,
-                                    modifier = Modifier.padding(end = 4.dp)
-                                )
-
-                                // Bank Buttons (Groups of 4) in a scrollable Row
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    val bankSize = 4
-                                    val numBanks = (totalCount + bankSize - 1) / bankSize
-                                    for (b in 0 until numBanks) {
-                                        val startCh = b * bankSize + 1
-                                        val endCh = minOf((b + 1) * bankSize, totalCount)
-                                        val targetIdx = b * bankSize
-                                        val isBankActive = firstVisible in (b * bankSize) until minOf((b + 1) * bankSize, totalCount)
-
-                                        Surface(
-                                            onClick = {
-                                                coroutineScope.launch {
-                                                    activeListState.animateScrollToItem(targetIdx)
-                                                }
-                                            },
-                                            color = if (isBankActive) NeonCyan else DarkSurface,
-                                            shape = RoundedCornerShape(4.dp),
-                                            border = BorderStroke(0.5.dp, if (isBankActive) NeonCyan else DarkBorder),
-                                            modifier = Modifier.height(26.dp)
-                                        ) {
-                                            Text(
-                                                text = if (selectedCategory == "Groups") "G$startCh-$endCh" else "$startCh-$endCh",
-                                                fontSize = 10.sp,
-                                                fontWeight = if (isBankActive) FontWeight.Bold else FontWeight.SemiBold,
-                                                color = if (isBankActive) Color.Black else TextSecondary,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                            )
-                                        }
-                                    }
                                 }
 
                                 // Next bank / item button
                                 IconButton(
                                     onClick = {
                                         coroutineScope.launch {
-                                            val next = (activeListState.firstVisibleItemIndex + 4).coerceAtMost(maxScrollIndex)
+                                            val next = (firstVisible + 4).coerceAtMost(maxScrollIndex)
                                             activeListState.animateScrollToItem(next)
                                         }
                                     },
-                                    enabled = firstVisible < maxScrollIndex,
-                                    modifier = Modifier.size(28.dp)
+                                    enabled = canScrollNext,
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ChevronRight,
-                                        contentDescription = "Bank Right",
-                                        tint = if (firstVisible < maxScrollIndex) NeonCyan else TextMuted,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                // Active position indicator
-                                Surface(
-                                    color = DarkSurface,
-                                    shape = RoundedCornerShape(4.dp),
-                                    border = BorderStroke(0.5.dp, DarkBorder),
-                                    modifier = Modifier.padding(start = 4.dp)
-                                ) {
-                                    val lastVisible = (firstVisible + visibleCount).coerceAtMost(totalCount)
-                                    val labelText = if (selectedCategory == "Groups") {
-                                        "GRP ${firstVisible + 1}-$lastVisible / $totalCount"
-                                    } else if (visibleCount >= totalCount) {
-                                        "ALL $totalCount"
-                                    } else {
-                                        "CH ${firstVisible + 1}-$lastVisible / $totalCount"
-                                    }
-                                    Text(
-                                        text = labelText,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = NeonCyan,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                        contentDescription = "Scroll Right",
+                                        tint = if (canScrollNext) NeonCyan else TextMuted,
+                                        modifier = Modifier.size(28.dp)
                                     )
                                 }
                             }

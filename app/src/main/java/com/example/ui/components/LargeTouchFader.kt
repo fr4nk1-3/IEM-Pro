@@ -55,8 +55,8 @@ fun LargeTouchFader(
                 MeterBar(
                     level = peakMeter,
                     height = actualHeight,
-                    width = 5.dp,
-                    modifier = Modifier.padding(end = 6.dp)
+                    width = 6.dp,
+                    modifier = Modifier.padding(end = 4.dp)
                 )
             }
 
@@ -135,7 +135,7 @@ fun LargeTouchFader(
                         .fillMaxWidth()
                         .padding(bottom = lineBottomPadding)
                         .height(2.dp)
-                        .background(Color(0x88FFFFFF))
+                        .background(TextPrimary.copy(alpha = 0.5f))
                 )
 
                 // Fader Handle / Cap

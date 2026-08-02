@@ -118,6 +118,9 @@ class OscSocketClient {
                 }
 
                 if (hasReceivedResponse) {
+                    try {
+                        socket?.soTimeout = 4000
+                    } catch (_: Exception) {}
                     _connectionState.value = _connectionState.value.copy(
                         status = ConnectionStatus.CONNECTED
                     )
@@ -207,6 +210,9 @@ class OscSocketClient {
                         }
                         _incomingMessages.emit(decoded)
                     }
+                } catch (e: java.net.SocketTimeoutException) {
+                    // Socket timeout on read is expected when no data is sent for 4s - stay active and loop
+                    continue
                 } catch (e: Exception) {
                     if (!isActive) break
                 }
@@ -218,7 +224,7 @@ class OscSocketClient {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
             while (isActive) {
-                delay(8000) // Send /xremote or /renew every 8 seconds
+                delay(2500) // Send /xremote or /renew every 2.5 seconds to maintain active OSC subscription
                 if (!isSimulatorActive && socket != null) {
                     sendOscMessage(OscMessage("/xremote"))
                 }

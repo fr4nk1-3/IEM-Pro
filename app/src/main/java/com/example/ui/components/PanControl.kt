@@ -19,7 +19,9 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.NeonCyan
+import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
 @Composable
@@ -62,7 +64,7 @@ fun PanControl(
                 .fillMaxWidth()
                 .height(22.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF1A212D))
+                .background(DarkSurfaceVariant)
                 .onGloballyPositioned { coordinates ->
                     widthPx = coordinates.size.width.toFloat().coerceAtLeast(1f)
                 }
@@ -113,7 +115,7 @@ fun PanControl(
                     .align(Alignment.Center)
                     .width(2.dp)
                     .fillMaxHeight()
-                    .background(Color.White.copy(alpha = 0.3f))
+                    .background(TextPrimary.copy(alpha = 0.5f))
             )
 
             // Pan Thumb Indicator - Safely positioned using BiasAlignment

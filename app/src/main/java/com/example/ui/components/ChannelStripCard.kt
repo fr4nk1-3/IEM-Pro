@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,6 +50,7 @@ fun ChannelStripCard(
             .fillMaxHeight()
             .padding(horizontal = 1.dp, vertical = 2.dp),
         colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        border = BorderStroke(1.dp, DarkBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(10.dp)
     ) {
@@ -119,6 +121,7 @@ fun ChannelStripCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
                     .background(DarkBackground)
+                    .border(0.5.dp, DarkBorder, RoundedCornerShape(4.dp))
                     .padding(vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -133,10 +136,16 @@ fun ChannelStripCard(
             Spacer(modifier = Modifier.height(3.dp))
 
             // Large Touch Fader + Peak Meter - filling remaining vertical space
+            val activeMeterLevel = if (isSendMuted || channel.isMuted) {
+                0.0f
+            } else {
+                (channel.peakMeter * (0.25f + sendLevel * 0.75f)).coerceIn(0f, 1f)
+            }
+
             LargeTouchFader(
                 value = sendLevel,
                 onValueChange = onLevelChange,
-                peakMeter = channel.peakMeter,
+                peakMeter = activeMeterLevel,
                 faderColor = if (isSendMuted) DarkBorder else colorAccent,
                 width = if (isCompact) 36.dp else 50.dp,
                 showMeter = true,

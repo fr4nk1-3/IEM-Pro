@@ -34,13 +34,13 @@ class VirtualMixerSimulator {
             busSendMutes = MutableList(16) { false },
             isFavorite = chNum in listOf(1, 2, 5, 8, 10),
             groupTag = when (chNum) {
-                in 1..4 -> "Drums"
-                5 -> "Bass"
-                6, 7 -> "Guitars"
-                8, 9 -> "Keys"
-                10, 11, 12 -> "Vocals"
-                in 13..14 -> "Horns"
-                else -> "FX / Aux"
+                in 1..8 -> "Drums"
+                in 9..10 -> "Bass"
+                in 11..14 -> "Guitars"
+                in 15..18 -> "Keys"
+                in 19..24 -> "Vocals"
+                in 25..28 -> "Horns"
+                else -> "FX"
             },
             inputGain = 0.5f,
             phantomPower = chNum in listOf(1, 2, 10, 11),
@@ -147,6 +147,31 @@ class VirtualMixerSimulator {
                             val newPans = ch.busSendPans.toMutableList()
                             newPans[busIdx] = floatVal
                             channels[chIdx] = ch.copy(busSendPans = newPans)
+                        } else if (addr.endsWith("/config/name")) {
+                            val newName = (msg.arguments.firstOrNull() as? String) ?: ch.name
+                            ch.name = newName
+                        } else if (addr.endsWith("/config/color")) {
+                            val cId = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
+                            ch.color = X32Color.entries.find { it.id == cId } ?: ch.color
+                        } else if (addr.endsWith("/config/icon")) {
+                            val newIcon = (msg.arguments.firstOrNull() as? String) ?: ch.iconType
+                            ch.iconType = newIcon
+                        }
+                    }
+                }
+            }
+            addr.startsWith("/headamp/") -> {
+                val parts = addr.split("/")
+                if (parts.size >= 3) {
+                    val chIdx = parts[2].toIntOrNull()?.minus(1) ?: return
+                    if (chIdx in 0 until 32) {
+                        val ch = channels[chIdx]
+                        if (addr.endsWith("/gain")) {
+                            val gVal = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: 0.5f
+                            ch.inputGain = gVal
+                        } else if (addr.endsWith("/phantom")) {
+                            val pVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 0
+                            ch.phantomPower = (pVal == 1)
                         }
                     }
                 }
@@ -163,6 +188,51 @@ class VirtualMixerSimulator {
                         } else if (addr.endsWith("/mix/on")) {
                             val intVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
                             bus.masterMute = (intVal == 0)
+                        } else if (addr.endsWith("/config/name")) {
+                            val newName = (msg.arguments.firstOrNull() as? String) ?: bus.name
+                            bus.name = newName
+                        } else if (addr.endsWith("/config/color")) {
+                            val cId = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
+                            bus.color = X32Color.entries.find { it.id == cId } ?: bus.color
+                        } else if (addr.endsWith("/config/tap")) {
+                            val tapIdx = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 0
+                            bus.sendTapMode = com.example.model.BusTapMode.entries.getOrElse(tapIdx) { bus.sendTapMode }
+                        } else if (addr.endsWith("/config/link")) {
+                            val linkVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 0
+                            bus.isStereoLinked = (linkVal == 1)
+                        } else if (addr.endsWith("/eq/on")) {
+                            val eqVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
+                            bus.eqActive = (eqVal == 1)
+                        } else if (addr.contains("/eq/")) {
+                            val bandNum = parts.getOrNull(4)?.toIntOrNull()
+                            if (bandNum != null && bandNum in 1..6) {
+                                val bIdx = bandNum - 1
+                                val bands = bus.eqBands.toMutableList()
+                                if (bIdx in bands.indices) {
+                                    val paramVal = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: 0f
+                                    val currentB = bands[bIdx]
+                                    if (addr.endsWith("/g")) {
+                                        bands[bIdx] = currentB.copy(gainDb = paramVal)
+                                    } else if (addr.endsWith("/f")) {
+                                        bands[bIdx] = currentB.copy(freqHz = paramVal)
+                                    } else if (addr.endsWith("/q")) {
+                                        bands[bIdx] = currentB.copy(qFactor = paramVal)
+                                    }
+                                    bus.eqBands = bands
+                                }
+                            }
+                        } else if (addr.endsWith("/dyn/on")) {
+                            val limVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
+                            bus.limiterActive = (limVal == 1)
+                        } else if (addr.endsWith("/dyn/thresh")) {
+                            val thresh = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: -6f
+                            bus.limiterThresholdDb = thresh
+                        } else if (addr.endsWith("/delay/time")) {
+                            val delMs = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: 0f
+                            bus.outputDelayMs = delMs
+                        } else if (addr.endsWith("/preamp/invert")) {
+                            val invVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 0
+                            bus.phaseInverted = (invVal == 1)
                         }
                     }
                 }

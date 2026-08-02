@@ -8,5 +8,5 @@ enum class RoleType {
 data class UserRole(
     val type: RoleType = RoleType.MUSICIAN,
     val isUnlocked: Boolean = false,
-    val engineerPin: String = "1234"
+    val engineerPin: String = "2114"
 )

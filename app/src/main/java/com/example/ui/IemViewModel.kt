@@ -45,6 +45,14 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    // App UI Theme Mode State (CQ MixPad, Glassmorphism, Light)
+    private val _appThemeMode = MutableStateFlow(AppThemeMode.CQ_MIXPAD)
+    val appThemeMode: StateFlow<AppThemeMode> = _appThemeMode.asStateFlow()
+
+    fun setAppThemeMode(mode: AppThemeMode) {
+        _appThemeMode.value = mode
+    }
+
     // User Role State (Musician vs Engineer)
     private val _userRole = MutableStateFlow(UserRole(RoleType.MUSICIAN, isUnlocked = false))
     val userRole: StateFlow<UserRole> = _userRole.asStateFlow()
@@ -115,20 +123,51 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Periodically refresh live channel peak meters from simulator/osc
+        // Periodically refresh live channel peak meters and compute bus master meters
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(100)
+                kotlinx.coroutines.delay(80)
+                val chs = _channels.value
+                val buses = _buses.value
+
+                var chsChanged = false
+                var busesChanged = false
+
+                val newChs = chs.toMutableList()
                 if (oscClient.isSimulatorActive) {
-                    val currentChs = _channels.value
                     val simChs = oscClient.simulator.channels
-                    for (i in currentChs.indices) {
+                    for (i in newChs.indices) {
                         if (i in simChs.indices) {
-                            currentChs[i].peakMeter = simChs[i].peakMeter
+                            val simVal = simChs[i].peakMeter
+                            if (kotlin.math.abs(newChs[i].peakMeter - simVal) > 0.005f) {
+                                newChs[i] = newChs[i].copy(peakMeter = simVal)
+                                chsChanged = true
+                            }
                         }
                     }
-                    _channels.value = currentChs.toList()
                 }
+
+                val newBuses = buses.toMutableList()
+                for (bIdx in newBuses.indices) {
+                    val bus = newBuses[bIdx]
+                    var sendSum = 0f
+                    for (ch in newChs) {
+                        if (!ch.isMuted && !ch.busSendMutes.getOrElse(bIdx) { false }) {
+                            val sendLvl = ch.busSendLevels.getOrElse(bIdx) { 0.75f }
+                            sendSum += ch.peakMeter * sendLvl
+                        }
+                    }
+                    val avgBusAudio = (sendSum / 3.2f).coerceIn(0f, 1.2f)
+                    val calcBusMeter = if (bus.masterMute) 0f else (avgBusAudio * bus.masterLevel).coerceIn(0f, 1f)
+
+                    if (kotlin.math.abs(bus.peakMeter - calcBusMeter) > 0.005f) {
+                        newBuses[bIdx] = bus.copy(peakMeter = calcBusMeter)
+                        busesChanged = true
+                    }
+                }
+
+                if (chsChanged) _channels.value = newChs
+                if (busesChanged) _buses.value = newBuses
             }
         }
     }
@@ -148,11 +187,22 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
             ch.copy(isFavorite = ch.id in favIds)
         }
 
-        // Load presets for profile
+        // Load presets for profile and persist default active profile
         viewModelScope.launch {
+            repository.setActiveDefaultProfile(profile.id)
             repository.getPresetsForProfile(profile.id).collect { list ->
                 _currentPresets.value = list
             }
+        }
+    }
+
+    // Saved manual IP state so user IP is never lost
+    private val _savedManualIp = MutableStateFlow("192.168.1.100")
+    val savedManualIp: StateFlow<String> = _savedManualIp.asStateFlow()
+
+    fun setManualIp(ip: String) {
+        if (ip.isNotBlank()) {
+            _savedManualIp.value = ip
         }
     }
 
@@ -170,13 +220,15 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
             ch.copy(groupTag = tag)
         }
 
-        val currentLevels = _groupLevels.value.toMutableMap()
+        val newGroupLevels = mutableMapOf<String, Float>()
         groups.keys.forEach { gName ->
-            if (!currentLevels.containsKey(gName)) {
-                currentLevels[gName] = 0.8f
-            }
+            newGroupLevels[gName] = _groupLevels.value[gName] ?: 0.8f
         }
-        _groupLevels.value = currentLevels
+        _groupLevels.value = newGroupLevels
+
+        if (_selectedCategory.value != "All" && _selectedCategory.value != "Groups" && !groups.containsKey(_selectedCategory.value)) {
+            _selectedCategory.value = "All"
+        }
     }
 
     fun toggleGroupsEnabled() {
@@ -247,7 +299,7 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
         busId: Int,
         instrumentIcon: String = "MIC",
         accentTheme: String = "CYAN",
-        groupsEnabled: Boolean = true
+        groupsEnabled: Boolean = false
     ) {
         val newId = "prof_" + System.currentTimeMillis()
         val newProf = UserProfileEntity(
@@ -361,6 +413,227 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
             oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/on", listOf(if (newMute) 0 else 1)))
         }
     }
+
+    // Engineer Talkback & Solo State
+    private val _talkbackMicGain = MutableStateFlow(0.75f)
+    val talkbackMicGain: StateFlow<Float> = _talkbackMicGain.asStateFlow()
+
+    private val _isTalkbackEngaged = MutableStateFlow(false)
+    val isTalkbackEngaged: StateFlow<Boolean> = _isTalkbackEngaged.asStateFlow()
+
+    fun setTalkbackMicGain(gain: Float) {
+        _talkbackMicGain.value = gain
+    }
+
+    fun toggleTalkbackEngaged() {
+        _isTalkbackEngaged.value = !_isTalkbackEngaged.value
+        showNotification(if (_isTalkbackEngaged.value) "Talkback Mic ENGAGED" else "Talkback Mic MUTED")
+    }
+
+    fun updateBusDetails(busId: Int, name: String, color: X32Color, icon: String = "HEADPHONES") {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val updated = list[busIdx].copy(name = name, color = color, iconType = icon)
+            list[busIdx] = updated
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/config/name", listOf(name)))
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/config/color", listOf(color.id)))
+            showNotification("Bus $busId settings saved: $name")
+        }
+    }
+
+    fun toggleBusStereoLink(busId: Int) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val bus = list[busIdx]
+            val newLinked = !bus.isStereoLinked
+            val partnerId = if (busId % 2 != 0) busId + 1 else busId - 1
+            val partnerIdx = partnerId - 1
+
+            list[busIdx] = bus.copy(isStereoLinked = newLinked, linkedBusId = if (newLinked) partnerId else null)
+            if (partnerIdx in list.indices) {
+                list[partnerIdx] = list[partnerIdx].copy(isStereoLinked = newLinked, linkedBusId = if (newLinked) busId else null)
+            }
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/config/link", listOf(if (newLinked) 1 else 0)))
+
+            val statusStr = if (newLinked) "Linked Bus $busId + Bus $partnerId Stereo Pair" else "Unlinked Bus $busId"
+            showNotification(statusStr)
+        }
+    }
+
+    fun toggleBusLimiter(busId: Int) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val newLimiter = !list[busIdx].limiterActive
+            list[busIdx] = list[busIdx].copy(limiterActive = newLimiter)
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/dyn/on", listOf(if (newLimiter) 1 else 0)))
+
+            showNotification("Bus $busId Ear Protection Limiter ${if (newLimiter) "ON" else "OFF"}")
+        }
+    }
+
+    fun updateBusLimiterThreshold(busId: Int, thresholdDb: Float) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            list[busIdx] = list[busIdx].copy(limiterThresholdDb = thresholdDb)
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/dyn/thresh", listOf(thresholdDb)))
+        }
+    }
+
+    fun toggleBusEq(busId: Int) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val newEq = !list[busIdx].eqActive
+            list[busIdx] = list[busIdx].copy(eqActive = newEq)
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/eq/on", listOf(if (newEq) 1 else 0)))
+
+            showNotification("Bus $busId 6-Band Parametric EQ ${if (newEq) "ACTIVE" else "BYPASSED"}")
+        }
+    }
+
+    fun updateBusEqBandGain(busId: Int, bandIndex: Int, gainDb: Float) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val bus = list[busIdx]
+            val updatedBands = bus.eqBands.toMutableList()
+            if (bandIndex in updatedBands.indices) {
+                updatedBands[bandIndex] = updatedBands[bandIndex].copy(gainDb = gainDb)
+                list[busIdx] = bus.copy(eqBands = updatedBands)
+                _buses.value = list
+                
+                val busStr = String.format("%02d", busId)
+                val bandNum = bandIndex + 1
+                oscClient.sendOscMessage(OscMessage("/bus/$busStr/eq/$bandNum/g", listOf(gainDb)))
+            }
+        }
+    }
+
+    fun updateBusEqBandFreq(busId: Int, bandIndex: Int, freqHz: Float) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val bus = list[busIdx]
+            val updatedBands = bus.eqBands.toMutableList()
+            if (bandIndex in updatedBands.indices) {
+                updatedBands[bandIndex] = updatedBands[bandIndex].copy(freqHz = freqHz)
+                list[busIdx] = bus.copy(eqBands = updatedBands)
+                _buses.value = list
+
+                val busStr = String.format("%02d", busId)
+                val bandNum = bandIndex + 1
+                oscClient.sendOscMessage(OscMessage("/bus/$busStr/eq/$bandNum/f", listOf(freqHz)))
+            }
+        }
+    }
+
+    fun updateBusEqBandQ(busId: Int, bandIndex: Int, qFactor: Float) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val bus = list[busIdx]
+            val updatedBands = bus.eqBands.toMutableList()
+            if (bandIndex in updatedBands.indices) {
+                updatedBands[bandIndex] = updatedBands[bandIndex].copy(qFactor = qFactor)
+                list[busIdx] = bus.copy(eqBands = updatedBands)
+                _buses.value = list
+
+                val busStr = String.format("%02d", busId)
+                val bandNum = bandIndex + 1
+                oscClient.sendOscMessage(OscMessage("/bus/$busStr/eq/$bandNum/q", listOf(qFactor)))
+            }
+        }
+    }
+
+    fun resetBusEq(busId: Int) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val bus = list[busIdx]
+            val flatBands = defaultBusEqBands()
+            list[busIdx] = bus.copy(eqBands = flatBands)
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            for (i in 1..6) {
+                oscClient.sendOscMessage(OscMessage("/bus/$busStr/eq/$i/g", listOf(0.0f)))
+            }
+            showNotification("Bus $busId EQ Reset to Flat (0 dB)")
+        }
+    }
+
+    fun updateBusOutputDelay(busId: Int, delayMs: Float) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            list[busIdx] = list[busIdx].copy(outputDelayMs = delayMs)
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/delay/time", listOf(delayMs)))
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/delay/on", listOf(if (delayMs > 0f) 1 else 0)))
+        }
+    }
+
+    fun toggleBusPhaseInvert(busId: Int) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val newPhase = !list[busIdx].phaseInverted
+            list[busIdx] = list[busIdx].copy(phaseInverted = newPhase)
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/preamp/invert", listOf(if (newPhase) 1 else 0)))
+
+            showNotification("Bus $busId Output Phase ${if (newPhase) "180° INVERTED" else "0° NORMAL"}")
+        }
+    }
+
+    fun updateBusTapMode(busId: Int, mode: BusTapMode) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            list[busIdx] = list[busIdx].copy(sendTapMode = mode)
+            _buses.value = list
+
+            val busStr = String.format("%02d", busId)
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/config/tap", listOf(mode.ordinal)))
+
+            showNotification("Bus $busId Tap Mode changed to ${mode.label}")
+        }
+    }
+
+    fun toggleBusTalkback(busId: Int) {
+        val busIdx = busId - 1
+        val list = _buses.value.toMutableList()
+        if (busIdx in list.indices) {
+            val newTalk = !list[busIdx].talkbackActive
+            list[busIdx] = list[busIdx].copy(talkbackActive = newTalk)
+            _buses.value = list
+            showNotification("Talkback Feed to Bus $busId ${if (newTalk) "ENABLED" else "DISABLED"}")
+        }
+    }
+
 
     fun updateGroupSubmixLevel(groupTag: String, newGroupLevel: Float) {
         val currentMap = _groupLevels.value.toMutableMap()
@@ -530,8 +803,16 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun connectToMixer(ip: String, port: Int = 10023) {
+        setManualIp(ip)
         oscClient.connectToMixer(ip, port)
         pullChannelsAndBusesFromMixer()
+    }
+
+    fun reconnectToMixer() {
+        val currentInfo = connectionState.value
+        val targetIp = if (currentInfo.ip.isNotBlank() && currentInfo.ip != "127.0.0.1") currentInfo.ip else savedManualIp.value
+        showNotification("Reconnecting to mixer at $targetIp:${currentInfo.port}...")
+        connectToMixer(targetIp, currentInfo.port)
     }
 
     fun startSimulatorMode() {
@@ -545,6 +826,10 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                 _channels.value = oscClient.simulator.channels.map { it.copy() }
                 _buses.value = oscClient.simulator.buses.map { it.copy() }
             } else {
+                // Pre-populate 32 channels if missing so incoming OSC updates aren't ignored
+                if (_channels.value.size < 32) {
+                    _channels.value = oscClient.simulator.channels.map { it.copy() }
+                }
                 // Request live data from connected hardware mixer over OSC
                 for (chId in 1..32) {
                     val chStr = String.format("%02d", chId)
@@ -633,6 +918,36 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                     } else if (addr.endsWith("/mix/on") && msg.arguments.isNotEmpty()) {
                         val isOn = (msg.arguments[0] as? Number)?.toInt() == 1
                         bus.masterMute = !isOn
+                    } else if (addr.endsWith("/config/tap") && msg.arguments.isNotEmpty()) {
+                        val tapIdx = (msg.arguments[0] as? Number)?.toInt() ?: 0
+                        bus.sendTapMode = BusTapMode.entries.getOrElse(tapIdx) { bus.sendTapMode }
+                    } else if (addr.endsWith("/config/link") && msg.arguments.isNotEmpty()) {
+                        val isL = (msg.arguments[0] as? Number)?.toInt() == 1
+                        bus.isStereoLinked = isL
+                    } else if (addr.endsWith("/eq/on") && msg.arguments.isNotEmpty()) {
+                        val eqOn = (msg.arguments[0] as? Number)?.toInt() == 1
+                        bus.eqActive = eqOn
+                    } else if (addr.contains("/eq/") && msg.arguments.isNotEmpty()) {
+                        val bandNum = parts.getOrNull(4)?.toIntOrNull()
+                        if (bandNum != null && bandNum in 1..6) {
+                            val bIdx = bandNum - 1
+                            val bands = bus.eqBands.toMutableList()
+                            if (bIdx in bands.indices) {
+                                val paramVal = (msg.arguments[0] as? Number)?.toFloat() ?: 0f
+                                if (addr.endsWith("/g")) bands[bIdx] = bands[bIdx].copy(gainDb = paramVal)
+                                else if (addr.endsWith("/f")) bands[bIdx] = bands[bIdx].copy(freqHz = paramVal)
+                                else if (addr.endsWith("/q")) bands[bIdx] = bands[bIdx].copy(qFactor = paramVal)
+                                bus.eqBands = bands
+                            }
+                        }
+                    } else if (addr.endsWith("/dyn/on") && msg.arguments.isNotEmpty()) {
+                        bus.limiterActive = (msg.arguments[0] as? Number)?.toInt() == 1
+                    } else if (addr.endsWith("/dyn/thresh") && msg.arguments.isNotEmpty()) {
+                        bus.limiterThresholdDb = (msg.arguments[0] as? Number)?.toFloat() ?: bus.limiterThresholdDb
+                    } else if (addr.endsWith("/delay/time") && msg.arguments.isNotEmpty()) {
+                        bus.outputDelayMs = (msg.arguments[0] as? Number)?.toFloat() ?: bus.outputDelayMs
+                    } else if (addr.endsWith("/preamp/invert") && msg.arguments.isNotEmpty()) {
+                        bus.phaseInverted = (msg.arguments[0] as? Number)?.toInt() == 1
                     }
                     list[busIdx] = bus
                     _buses.value = list
