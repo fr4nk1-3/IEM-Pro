@@ -25,22 +25,22 @@ data class AppColors(
     val themeMode: AppThemeMode = AppThemeMode.GLASSMORPHISM
 )
 
-// Allen & Heath CQ MixPad Palette (Deep Slate Console with Vivid Cyan & Amber Accents)
+// Dark Metallic Grey Console Palette
 val CQMixPadAppColors = AppColors(
-    background = Color(0xFF10141D),     // Allen & Heath CQ Console Deep Slate Surface
-    surface = Color(0xFF1A212E),        // CQ Dark Tactical Card Container
-    surfaceVariant = Color(0xFF242E40), // CQ High-Contrast Control Strip
-    border = Color(0xFF33425B),         // Precision Console Border
-    textPrimary = Color(0xFFF8FAFC),    // Crisp White Readout
-    textSecondary = Color(0xFF94A3B8),  // CQ Slate Label
-    textMuted = Color(0xFF64748B),      // CQ Secondary Caption
-    cyan = Color(0xFF00D2FF),           // Allen & Heath Electric Cyan
-    blue = Color(0xFF29B6F6),           // CQ Electric Blue
-    emerald = Color(0xFF00E676),        // CQ Signal Green
-    amber = Color(0xFFFFB703),          // CQ Amber / Solo Active
-    rose = Color(0xFFFF1744),           // CQ Red / Mute Active
-    magenta = Color(0xFFE040FB),        // CQ Magenta
-    purple = Color(0xFF7C4DFF),         // CQ Deep Purple
+    background = Color(0xFF16181C),     // Dark Metallic Charcoal Surface
+    surface = Color(0xFF22252B),        // Dark Metallic Grey Card Container
+    surfaceVariant = Color(0xFF2E323B), // Metallic Gunmetal Control Strip
+    border = Color(0xFF444A56),         // Metallic Steel Console Border
+    textPrimary = Color(0xFFF1F5F9),    // Crisp Metallic White Readout
+    textSecondary = Color(0xFFA0AAB8),  // Metallic Slate Label
+    textMuted = Color(0xFF6C7685),      // Dark Slate Caption
+    cyan = Color(0xFF90A4AE),           // Metallic Steel Grey Accent
+    blue = Color(0xFF78909C),           // Dark Metallic Slate Blue
+    emerald = Color(0xFF10B981),        // Signal Green
+    amber = Color(0xFFF59E0B),          // Active Amber
+    rose = Color(0xFFEF4444),           // Active Mute Red
+    magenta = Color(0xFFD946EF),        // Active Magenta
+    purple = Color(0xFF8B5CF6),         // Active Purple
     isGlass = false,
     themeMode = AppThemeMode.CQ_MIXPAD
 )

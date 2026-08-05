@@ -73,22 +73,22 @@ fun IemMixerTheme(
         ) {
             if (themeMode == AppThemeMode.CQ_MIXPAD) {
                 Box(modifier = Modifier.fillMaxSize().background(appColors.background)) {
-                    // Allen & Heath CQ Console Technical Background Canvas
+                    // Dark Metallic Grey Technical Background Canvas
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val w = size.width
                         val h = size.height
-                        // Subtle cyan console top-left radial glow
+                        // Subtle metallic steel top-left radial glow
                         drawCircle(
                             brush = Brush.radialGradient(
-                                colors = listOf(Color(0x2800D2FF), Color.Transparent),
+                                colors = listOf(Color(0x20525E75), Color.Transparent),
                                 center = Offset(w * 0.10f, h * 0.15f),
                                 radius = w * 0.6f
                             )
                         )
-                        // Amber console bottom-right radial glow
+                        // Metallic gunmetal bottom-right radial glow
                         drawCircle(
                             brush = Brush.radialGradient(
-                                colors = listOf(Color(0x20FFB703), Color.Transparent),
+                                colors = listOf(Color(0x18373E4D), Color.Transparent),
                                 center = Offset(w * 0.90f, h * 0.85f),
                                 radius = w * 0.6f
                             )

@@ -1061,6 +1061,7 @@ private fun MixbusEqControlCard(
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
+                    if (w <= 0f || h <= 0f) return@Canvas
                     val zeroY = h / 2f
 
                     // Gridlines (+15dB, 0dB, -15dB)

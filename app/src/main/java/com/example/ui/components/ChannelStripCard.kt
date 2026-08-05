@@ -11,8 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,30 +34,38 @@ fun ChannelStripCard(
     onMuteToggle: () -> Unit,
     modifier: Modifier = Modifier,
     cardWidth: Dp = 120.dp,
-    onPanChange: ((Float) -> Unit)? = null
+    onPanChange: ((Float) -> Unit)? = null,
+    isSelected: Boolean = false,
+    onSelect: (() -> Unit)? = null
 ) {
+    var isAdjusting by remember { mutableStateOf(false) }
+    val effectiveSelected = isSelected || isAdjusting
+
     val sendLevel = channel.busSendLevels.getOrElse(activeBusIndex) { 0.75f }
     val isSendMuted = channel.busSendMutes.getOrElse(activeBusIndex) { false }
     val colorAccent = channel.color.composeColor
     val haptic = LocalHapticFeedback.current
 
-    val isCompact = cardWidth < 85.dp
+    val isUltraCompact = cardWidth < 72.dp
+    val isCompact = cardWidth < 90.dp
 
     Card(
         modifier = modifier
             .width(cardWidth)
             .fillMaxHeight()
-            .padding(horizontal = 1.dp, vertical = 2.dp),
+            .padding(horizontal = 1.dp, vertical = 2.dp)
+            .rgbGlowBorder(isSelected = effectiveSelected, borderWidth = 2.dp, shape = RoundedCornerShape(10.dp))
+            .then(if (onSelect != null) Modifier.clickable { onSelect() } else Modifier),
         colors = CardDefaults.cardColors(containerColor = DarkSurface),
-        border = BorderStroke(1.dp, DarkBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = if (!effectiveSelected) BorderStroke(1.dp, DarkBorder) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (effectiveSelected) 6.dp else 2.dp),
         shape = RoundedCornerShape(10.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
-                .padding(if (isCompact) 4.dp else 6.dp),
+                .padding(if (isUltraCompact) 3.dp else if (isCompact) 4.dp else 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Header Color Accent Strip + Channel Number
@@ -67,27 +74,27 @@ fun ChannelStripCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
                     .background(colorAccent.copy(alpha = 0.2f))
-                    .padding(horizontal = if (isCompact) 3.dp else 6.dp, vertical = 3.dp),
+                    .padding(horizontal = if (isUltraCompact) 2.dp else if (isCompact) 4.dp else 6.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Start
             ) {
                 Box(
                     modifier = Modifier
-                        .size(if (isCompact) 6.dp else 8.dp)
+                        .size(if (isUltraCompact) 5.dp else if (isCompact) 6.dp else 8.dp)
                         .clip(CircleShape)
                         .background(colorAccent)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(3.dp))
                 Text(
                     text = "CH ${channel.id.toString().padStart(2, '0')}",
-                    fontSize = if (isCompact) 9.sp else 11.sp,
+                    fontSize = if (isUltraCompact) 8.sp else if (isCompact) 9.sp else 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     maxLines = 1
                 )
             }
 
-            Spacer(modifier = Modifier.height(3.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             // Channel Name & Icon
             Row(
@@ -99,12 +106,12 @@ fun ChannelStripCard(
                     imageVector = getInstrumentIcon(channel.iconType),
                     contentDescription = channel.iconType,
                     tint = colorAccent,
-                    modifier = Modifier.size(if (isCompact) 12.dp else 15.dp)
+                    modifier = Modifier.size(if (isUltraCompact) 10.dp else if (isCompact) 12.dp else 14.dp)
                 )
-                Spacer(modifier = Modifier.width(3.dp))
+                Spacer(modifier = Modifier.width(2.dp))
                 Text(
                     text = channel.name,
-                    fontSize = if (isCompact) 10.sp else 12.sp,
+                    fontSize = if (isUltraCompact) 9.sp else if (isCompact) 10.sp else 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     maxLines = 1,
@@ -127,7 +134,7 @@ fun ChannelStripCard(
             ) {
                 Text(
                     text = if (isSendMuted) "MUTED" else sendDbString,
-                    fontSize = if (isCompact) 10.sp else 12.sp,
+                    fontSize = if (isUltraCompact) 9.sp else if (isCompact) 10.sp else 12.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = if (isSendMuted) NeonRose else NeonCyan
                 )
@@ -147,12 +154,18 @@ fun ChannelStripCard(
                 onValueChange = onLevelChange,
                 peakMeter = activeMeterLevel,
                 faderColor = if (isSendMuted) DarkBorder else colorAccent,
-                width = if (isCompact) 36.dp else 50.dp,
+                width = if (isUltraCompact) 28.dp else if (isCompact) 36.dp else 50.dp,
                 showMeter = true,
+                onDragStateChange = { dragging ->
+                    isAdjusting = dragging
+                    if (dragging) {
+                        onSelect?.invoke()
+                    }
+                },
                 modifier = Modifier.weight(1f)
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
 
             // Mute Button
             Button(
@@ -168,11 +181,11 @@ fun ChannelStripCard(
                 shape = RoundedCornerShape(6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(28.dp)
+                    .height(if (isUltraCompact) 24.dp else 28.dp)
             ) {
                 Text(
                     text = if (isSendMuted) "MUTED" else "MUTE",
-                    fontSize = if (isCompact) 9.sp else 10.sp,
+                    fontSize = if (isUltraCompact) 8.sp else if (isCompact) 9.sp else 10.sp,
                     fontWeight = FontWeight.Bold
                 )
             }

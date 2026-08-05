@@ -57,6 +57,10 @@ fun DashboardScreen(
     val groupLevels by viewModel.groupLevels.collectAsState()
     val customGroups by viewModel.customGroups.collectAsState()
 
+    var selectedChannelId by remember { mutableStateOf<Int?>(1) }
+    var selectedGroupTag by remember { mutableStateOf<String?>(null) }
+    var isMasterSelected by remember { mutableStateOf(false) }
+
     val channelListState = rememberLazyListState()
     val groupListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -104,23 +108,14 @@ fun DashboardScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .pointerInput(Unit) {
-                detectVerticalDragGestures { _, dragAmount ->
-                    if (dragAmount < -20f) {
-                        isFaderExpanded = true
-                    } else if (dragAmount > 20f) {
-                        isFaderExpanded = false
-                    }
-                }
-            }
     ) {
-        if (isFaderExpanded) {
-            // Sleek minimal top bar in expanded mode
+        if (isFaderExpanded || isLandscape) {
+            // Sleek minimal top bar in expanded/landscape mode
             Surface(
                 color = DarkSurface,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { isFaderExpanded = false }
+                    .clickable { isFaderExpanded = !isFaderExpanded }
                     .padding(vertical = 4.dp, horizontal = 12.dp)
             ) {
                 Row(
@@ -130,21 +125,21 @@ fun DashboardScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Collapse Faders",
+                            if (isFaderExpanded || isLandscape) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                            contentDescription = "Toggle Faders View",
                             tint = NeonCyan,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "EXPANDED FADERS • MIXBUS ${activeBusIndex + 1}: $busName",
+                            text = "MIXBUS ${activeBusIndex + 1}: $busName • ${mixerInfo.model.uppercase()}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = NeonCyan
                         )
                     }
                     Text(
-                        text = "TAP OR SWIPE DOWN TO COLLAPSE",
+                        text = if (isFaderExpanded) "TAP TO COLLAPSE HEADER" else "FULL CONSOLE MODE",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = TextMuted
@@ -301,10 +296,11 @@ fun DashboardScreen(
                 .padding(horizontal = 2.dp)
         ) {
             val totalWidth = maxWidth
-            val masterCardWidth = if (totalWidth < 400.dp) 68.dp else if (totalWidth < 700.dp) 95.dp else 115.dp
-            val availableWidthForChannels = (totalWidth - (if (activeBus != null) masterCardWidth else 0.dp) - 8.dp).coerceAtLeast(0.dp)
-            val maxVisibleFaders = (availableWidthForChannels / 70.dp).toInt().coerceAtLeast(3)
-            val channelCardWidth = (availableWidthForChannels / maxVisibleFaders).coerceIn(65.dp, 115.dp)
+            val masterCardWidth = if (totalWidth < 380.dp) 64.dp else if (totalWidth < 600.dp) 85.dp else if (totalWidth < 900.dp) 105.dp else 125.dp
+            val availableWidthForChannels = (totalWidth - (if (activeBus != null) masterCardWidth else 0.dp) - 6.dp).coerceAtLeast(0.dp)
+            val minCardWidth = if (totalWidth < 380.dp) 58.dp else if (totalWidth < 600.dp) 72.dp else 85.dp
+            val maxVisibleFaders = (availableWidthForChannels / minCardWidth).toInt().coerceAtLeast(1)
+            val channelCardWidth = (availableWidthForChannels / maxVisibleFaders).coerceIn(58.dp, 130.dp)
 
             Row(
                 modifier = Modifier.fillMaxSize(),
@@ -353,7 +349,13 @@ fun DashboardScreen(
                                             "Guitars" -> NeonAmber
                                             else -> NeonEmerald
                                         },
-                                        cardWidth = channelCardWidth
+                                        cardWidth = channelCardWidth,
+                                        isSelected = (selectedGroupTag == groupTag),
+                                        onSelect = {
+                                            selectedGroupTag = if (selectedGroupTag == groupTag) null else groupTag
+                                            selectedChannelId = null
+                                            isMasterSelected = false
+                                        }
                                     )
                                 }
                             }
@@ -401,7 +403,13 @@ fun DashboardScreen(
                                         onMuteToggle = {
                                             viewModel.toggleChannelBusMute(channel.id, activeBusIndex)
                                         },
-                                        cardWidth = channelCardWidth
+                                        cardWidth = channelCardWidth,
+                                        isSelected = (selectedChannelId == channel.id),
+                                        onSelect = {
+                                            selectedChannelId = if (selectedChannelId == channel.id) null else channel.id
+                                            selectedGroupTag = null
+                                            isMasterSelected = false
+                                        }
                                     )
                                 }
                             }
@@ -492,6 +500,14 @@ fun DashboardScreen(
                             viewModel.toggleMasterBusMute(activeBusIndex)
                         },
                         cardWidth = masterCardWidth,
+                        isSelected = isMasterSelected,
+                        onSelect = {
+                            isMasterSelected = !isMasterSelected
+                            if (isMasterSelected) {
+                                selectedChannelId = null
+                                selectedGroupTag = null
+                            }
+                        },
                         modifier = Modifier.fillMaxHeight()
                     )
                 }

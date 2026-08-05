@@ -72,6 +72,7 @@ fun MeterBar(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val totalHeight = size.height
             val totalWidth = size.width
+            if (totalHeight <= 0f || totalWidth <= 0f) return@Canvas
 
             // Color stops defining standard audio meter thresholds:
             // 0.0 .. 0.12 = Red (0 dB / Clip)
