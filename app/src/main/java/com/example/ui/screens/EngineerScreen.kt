@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,6 +37,7 @@ import com.example.model.BusTapMode
 import com.example.model.MixBusState
 import com.example.model.X32Color
 import com.example.ui.IemViewModel
+import com.example.ui.components.HorizontalMeterBar
 import com.example.ui.theme.*
 
 @Composable
@@ -707,7 +709,7 @@ private fun MixbusDetailControls(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Master Level & Mute Card
+        // Master Level & Mute Card with Live Audio Meter Output
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = DarkSurface)
@@ -718,13 +720,71 @@ private fun MixbusDetailControls(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("BUS MASTER OUTPUT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
-                    Text(
-                        text = bus.getMasterDbString(),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = NeonCyan
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("BUS MASTER OUTPUT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val isClipping = !bus.masterMute && (bus.peakMeter >= 0.88f || bus.peakMeterL >= 0.88f || bus.peakMeterR >= 0.88f)
+                        val hasSignal = !bus.masterMute && (bus.peakMeter >= 0.04f || bus.peakMeterL >= 0.04f || bus.peakMeterR >= 0.04f)
+                        val sigColor = when {
+                            isClipping -> NeonRose
+                            hasSignal -> NeonEmerald
+                            else -> Color(0xFF1E293B)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(sigColor)
+                                .border(0.5.dp, if (isClipping || hasSignal) sigColor else Color(0xFF334155), androidx.compose.foundation.shape.CircleShape)
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = bus.getPeakDbString(),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (bus.masterMute) Color(0xFF64748B) else if (bus.peakMeter >= 0.88f) NeonRose else TextMuted
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (bus.masterMute) "MUTED" else bus.getMasterDbString(),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (bus.masterMute) NeonRose else NeonCyan
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Real-time Master Output Audio Meter Bar
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("L", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted, modifier = Modifier.width(12.dp))
+                        HorizontalMeterBar(
+                            level = bus.peakMeterL,
+                            isMuted = bus.masterMute,
+                            modifier = Modifier.weight(1f),
+                            height = 6.dp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("R", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted, modifier = Modifier.width(12.dp))
+                        HorizontalMeterBar(
+                            level = bus.peakMeterR,
+                            isMuted = bus.masterMute,
+                            modifier = Modifier.weight(1f),
+                            height = 6.dp
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

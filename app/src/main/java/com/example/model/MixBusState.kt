@@ -41,10 +41,19 @@ data class MixBusState(
     var sendTapMode: BusTapMode = BusTapMode.PRE_FADER,
     var talkbackActive: Boolean = false,
     var iconType: String = "HEADPHONES",
-    var peakMeter: Float = 0.0f
+    var peakMeter: Float = 0.0f,
+    var peakMeterL: Float = 0.0f,
+    var peakMeterR: Float = 0.0f
 ) {
     fun getMasterDbString(): String {
         return ChannelState.faderToDbString(masterLevel)
+    }
+
+    fun getPeakDbString(): String {
+        val peak = maxOf(peakMeter, maxOf(peakMeterL, peakMeterR))
+        if (peak <= 0.01f) return "-inf dB"
+        val db = (peak - 0.75f) * 40f
+        return String.format(java.util.Locale.US, "%+.1f dBFS", db)
     }
 }
 

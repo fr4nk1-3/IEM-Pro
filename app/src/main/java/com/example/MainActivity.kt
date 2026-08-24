@@ -41,13 +41,19 @@ class MainActivity : ComponentActivity() {
             val appThemeMode by viewModel.appThemeMode.collectAsState()
 
             IemMixerTheme(themeMode = appThemeMode) {
-                var currentScreen by remember { mutableStateOf(Screen.DASHBOARD) }
+                var isSplashActive by remember { mutableStateOf(true) }
+                var currentScreen by remember { mutableStateOf(Screen.DISCOVERY) }
                 val snackbarHostState = remember { SnackbarHostState() }
                 val notificationMessage by viewModel.notificationMessage.collectAsState()
                 val connectionInfo by viewModel.connectionState.collectAsState()
                 val isConnected = connectionInfo.status == ConnectionStatus.CONNECTED || connectionInfo.status == ConnectionStatus.SIMULATION
 
-                val navigateToAccountSetupWithCheck = {
+                if (isSplashActive) {
+                    SplashScreen(
+                        onSplashFinished = { isSplashActive = false }
+                    )
+                } else {
+                    val navigateToAccountSetupWithCheck = {
                     if (isConnected) {
                         currentScreen = Screen.ACCOUNT_SETUP
                     } else {
@@ -130,4 +136,5 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 }

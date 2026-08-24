@@ -30,6 +30,9 @@ fun LargeTouchFader(
     value: Float, // 0.0 .. 1.0
     onValueChange: (Float) -> Unit,
     peakMeter: Float = 0f,
+    peakMeterL: Float? = null,
+    peakMeterR: Float? = null,
+    isMuted: Boolean = false,
     faderColor: Color = MaterialTheme.colorScheme.primary,
     height: Dp = 180.dp,
     width: Dp = 52.dp,
@@ -55,13 +58,27 @@ fun LargeTouchFader(
             modifier = Modifier.fillMaxHeight().padding(vertical = 2.dp)
         ) {
             if (showMeter) {
-                MeterBar(
-                    level = peakMeter,
-                    height = actualHeight,
-                    width = if (width < 32.dp) 6.dp else 7.dp,
-                    showTicks = (width >= 40.dp),
-                    modifier = Modifier.padding(end = if (width >= 40.dp) 2.dp else 3.dp)
-                )
+                if (peakMeterL != null && peakMeterR != null) {
+                    MasterStereoMeterBar(
+                        levelLeft = peakMeterL,
+                        levelRight = peakMeterR,
+                        isMuted = isMuted,
+                        height = actualHeight,
+                        barWidth = if (width < 32.dp) 3.5.dp else if (width < 42.dp) 4.5.dp else 5.5.dp,
+                        showLabels = true,
+                        showTicks = (width >= 44.dp),
+                        modifier = Modifier.padding(end = if (width >= 40.dp) 2.dp else 3.dp)
+                    )
+                } else {
+                    MeterBar(
+                        level = peakMeter,
+                        isMuted = isMuted,
+                        height = actualHeight,
+                        width = if (width < 32.dp) 6.dp else 7.dp,
+                        showTicks = (width >= 40.dp),
+                        modifier = Modifier.padding(end = if (width >= 40.dp) 2.dp else 3.dp)
+                    )
+                }
             }
 
             var lastTapTime by remember { mutableLongStateOf(0L) }

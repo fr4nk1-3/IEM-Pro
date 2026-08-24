@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "IEM Mixer"
+rootProject.name = "Mixbridge"
 
 include(":app")

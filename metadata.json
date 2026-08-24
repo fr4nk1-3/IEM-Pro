@@ -1,6 +1,6 @@
 {
-  "name": "IEM Mixer",
-  "description": "Wireless In-Ear Monitor (IEM) mix control with Allen & Heath CQ MixPad interface for digital audio consoles.",
+  "name": "Mixbridge",
+  "description": "Wireless In-Ear Monitor (IEM) mix control and digital console bridge for X32, M32, CQ, and modern audio mixers.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

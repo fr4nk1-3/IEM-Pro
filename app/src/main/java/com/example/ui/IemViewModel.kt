@@ -159,18 +159,51 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                 val newBuses = buses.toMutableList()
                 for (bIdx in newBuses.indices) {
                     val bus = newBuses[bIdx]
-                    var sendSum = 0f
+                    var sendSumL = 0f
+                    var sendSumR = 0f
+                    var activeSources = 0
                     for (ch in newChs) {
                         if (!ch.isMuted && !ch.busSendMutes.getOrElse(bIdx) { false }) {
                             val sendLvl = ch.busSendLevels.getOrElse(bIdx) { 0.75f }
-                            sendSum += ch.peakMeter * sendLvl
+                            val sendPan = ch.busSendPans.getOrElse(bIdx) { 0.5f }
+                            val chAudio = (ch.peakMeter * (0.2f + sendLvl * 0.8f)).coerceIn(0f, 1f)
+                            
+                            // Equal power / linear stereo panning to bus master
+                            val leftFactor = (1.0f - sendPan) * 1.3f
+                            val rightFactor = sendPan * 1.3f
+                            sendSumL += chAudio * leftFactor.coerceIn(0.2f, 1.0f)
+                            sendSumR += chAudio * rightFactor.coerceIn(0.2f, 1.0f)
+                            activeSources++
                         }
                     }
-                    val avgBusAudio = (sendSum / 3.2f).coerceIn(0f, 1.2f)
-                    val calcBusMeter = if (bus.masterMute) 0f else (avgBusAudio * bus.masterLevel).coerceIn(0f, 1f)
+                    val normalizationDivisor = if (activeSources > 0) (kotlin.math.sqrt(activeSources.toFloat()) * 1.2f).coerceAtLeast(2.0f) else 2.5f
+                    val rawBusAudioL = (sendSumL / normalizationDivisor).coerceIn(0f, 1.3f)
+                    val rawBusAudioR = (sendSumR / normalizationDivisor).coerceIn(0f, 1.3f)
 
-                    if (kotlin.math.abs(bus.peakMeter - calcBusMeter) > 0.005f) {
-                        newBuses[bIdx] = bus.copy(peakMeter = calcBusMeter)
+                    var calcBusMeterL = (rawBusAudioL * (if (bus.masterLevel <= 0.01f) 0.5f else bus.masterLevel)).coerceIn(0f, 1f)
+                    var calcBusMeterR = (rawBusAudioR * (if (bus.masterLevel <= 0.01f) 0.5f else bus.masterLevel)).coerceIn(0f, 1f)
+
+                    // Apply brickwall limiter if bus limiter is active
+                    if (bus.limiterActive) {
+                        val limitCeiling = (0.75f + (bus.limiterThresholdDb / 40f)).coerceIn(0.6f, 0.95f)
+                        if (calcBusMeterL > limitCeiling) {
+                            calcBusMeterL = limitCeiling + (calcBusMeterL - limitCeiling) * 0.15f
+                        }
+                        if (calcBusMeterR > limitCeiling) {
+                            calcBusMeterR = limitCeiling + (calcBusMeterR - limitCeiling) * 0.15f
+                        }
+                    }
+
+                    val calcBusMeter = maxOf(calcBusMeterL, calcBusMeterR)
+
+                    if (kotlin.math.abs(bus.peakMeter - calcBusMeter) > 0.005f ||
+                        kotlin.math.abs(bus.peakMeterL - calcBusMeterL) > 0.005f ||
+                        kotlin.math.abs(bus.peakMeterR - calcBusMeterR) > 0.005f) {
+                        newBuses[bIdx] = bus.copy(
+                            peakMeter = calcBusMeter,
+                            peakMeterL = calcBusMeterL,
+                            peakMeterR = calcBusMeterR
+                        )
                         busesChanged = true
                     }
                 }

@@ -218,12 +218,34 @@ fun DashboardScreen(
 
                         Spacer(modifier = Modifier.width(10.dp))
 
-                        Text(
-                            text = activeBus?.getMasterDbString() ?: "0 dB",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = NeonCyan
-                        )
+                        Column(verticalArrangement = Arrangement.Center) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (activeBus?.masterMute == true) "MUTED" else activeBus?.getMasterDbString() ?: "0 dB",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeBus?.masterMute == true) NeonRose else NeonCyan
+                                )
+                                if (activeBus != null) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = activeBus.getPeakDbString(),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (activeBus.masterMute) Color(0xFF64748B) else if (activeBus.peakMeter >= 0.88f) NeonRose else TextMuted
+                                    )
+                                }
+                            }
+                            if (activeBus != null) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                HorizontalMeterBar(
+                                    level = activeBus.peakMeter,
+                                    isMuted = activeBus.masterMute,
+                                    height = 4.dp,
+                                    modifier = Modifier.width(64.dp)
+                                )
+                            }
+                        }
                     }
 
                     if (isLandscape) {
@@ -335,7 +357,7 @@ fun DashboardScreen(
                                         groupName = groupTag,
                                         channelCount = matchingChs,
                                         groupLevel = currentLvl,
-                                        peakMeter = if (groupChannels.isEmpty() || isGroupMuted) 0f else (groupChannels.map { ch -> if (ch.isMuted) 0f else ch.peakMeter * ch.busSendLevels.getOrElse(activeBusIndex) { 0.75f } }.average().toFloat() * currentLvl).coerceIn(0f, 1f),
+                                        peakMeter = if (groupChannels.isEmpty()) 0f else (groupChannels.map { ch -> ch.peakMeter * ch.busSendLevels.getOrElse(activeBusIndex) { 0.75f } }.average().toFloat() * currentLvl).coerceIn(0f, 1f),
                                         onGroupLevelChange = { newLvl ->
                                             viewModel.updateGroupSubmixLevel(groupTag, newLvl)
                                         },

@@ -24,7 +24,7 @@ class GreetingScreenshotTest {
   fun greeting_screenshot() {
     composeTestRule.setContent {
       IemMixerTheme {
-        Text("IEM Mixer Pro")
+        Text("Mixbridge")
       }
     }
 

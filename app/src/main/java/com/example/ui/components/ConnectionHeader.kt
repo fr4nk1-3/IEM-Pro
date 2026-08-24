@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,10 +14,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.model.AppThemeMode
 import com.example.model.ConnectionStatus
 import com.example.model.MixBusState
@@ -68,20 +71,22 @@ fun ConnectionHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // App Title / Branding
+            // App Title / Branding with Mixbridge Logo
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Tune,
-                    contentDescription = "Mixer Engine",
-                    tint = NeonCyan,
-                    modifier = Modifier.size(18.dp)
+                Image(
+                    painter = painterResource(R.drawable.mixbridge_logo),
+                    contentDescription = "Mixbridge Logo",
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(RoundedCornerShape(4.dp))
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "IEM MIXER PRO",
+                    text = "MIXBRIDGE",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = NeonCyan,
+                    letterSpacing = 1.sp
                 )
             }
 

@@ -162,16 +162,14 @@ fun ChannelStripCard(
             Spacer(modifier = Modifier.height(3.dp))
 
             // Large Touch Fader + Peak Meter - filling remaining vertical space
-            val activeMeterLevel = if (isSendMuted || channel.isMuted) {
-                0.0f
-            } else {
-                (channel.peakMeter * (0.25f + sendLevel * 0.75f)).coerceIn(0f, 1f)
-            }
+            val isMuted = isSendMuted || channel.isMuted
+            val activeMeterLevel = (channel.peakMeter * (0.25f + sendLevel * 0.75f)).coerceIn(0f, 1f)
 
             LargeTouchFader(
                 value = sendLevel,
                 onValueChange = onLevelChange,
                 peakMeter = activeMeterLevel,
+                isMuted = isMuted,
                 faderColor = if (isSendMuted) DarkBorder else colorAccent,
                 width = if (isUltraCompact) 28.dp else if (isCompact) 36.dp else 50.dp,
                 showMeter = true,

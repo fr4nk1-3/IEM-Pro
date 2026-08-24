@@ -118,12 +118,13 @@ fun GroupFaderCard(
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            val groupPeakMeter = if (isGroupMuted) 0.0f else if (peakMeter >= 0f) peakMeter else (groupLevel * 0.85f).coerceIn(0f, 1f)
+            val groupPeakMeter = if (peakMeter >= 0f) peakMeter else (groupLevel * 0.85f).coerceIn(0f, 1f)
 
             LargeTouchFader(
                 value = groupLevel,
                 onValueChange = onGroupLevelChange,
                 peakMeter = groupPeakMeter,
+                isMuted = isGroupMuted,
                 faderColor = if (isGroupMuted) DarkBorder else accentColor,
                 width = if (isUltraCompact) 28.dp else if (isCompact) 36.dp else 50.dp,
                 showMeter = true,

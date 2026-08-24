@@ -70,7 +70,7 @@ fun BusMasterFaderCard(
                 .padding(if (isUltraCompact) 3.dp else if (isCompact) 4.dp else 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Top Header: Bus Master Label
+            // Top Header: Bus Master Label & Signal / Clip Status LEDs
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -94,20 +94,41 @@ fun BusMasterFaderCard(
                         color = accentColor
                     )
                 }
-                if (bus.isStereoLinked) {
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (bus.isStereoLinked) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(NeonCyan.copy(alpha = 0.3f))
+                                .padding(horizontal = 3.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "ST",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = NeonCyan
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(3.dp))
+                    }
+
+                    // Master Output Signal / Clip Status LEDs
+                    val isClipping = !bus.masterMute && (bus.peakMeter >= 0.88f || bus.peakMeterL >= 0.88f || bus.peakMeterR >= 0.88f)
+                    val hasSignal = !bus.masterMute && (bus.peakMeter >= 0.04f || bus.peakMeterL >= 0.04f || bus.peakMeterR >= 0.04f)
+                    val sigColor = when {
+                        isClipping -> NeonRose
+                        hasSignal -> NeonEmerald
+                        else -> Color(0xFF1E293B)
+                    }
+
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(NeonCyan.copy(alpha = 0.3f))
-                            .padding(horizontal = 3.dp, vertical = 1.dp)
-                    ) {
-                        Text(
-                            text = "ST",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = NeonCyan
-                        )
-                    }
+                            .size(if (isUltraCompact) 6.dp else 7.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(sigColor)
+                            .border(0.5.dp, if (isClipping || hasSignal) sigColor else Color(0xFF334155), androidx.compose.foundation.shape.CircleShape)
+                    )
                 }
             }
 
@@ -125,7 +146,7 @@ fun BusMasterFaderCard(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            // Master dB Display
+            // Master dB & Output Peak Readout
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -135,21 +156,38 @@ fun BusMasterFaderCard(
                     .padding(vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (bus.masterMute) "MUTED" else bus.getMasterDbString(),
-                    fontSize = if (isUltraCompact) 9.sp else if (isCompact) 10.sp else 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (bus.masterMute) NeonRose else NeonCyan
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (bus.masterMute) "MUTED" else bus.getMasterDbString(),
+                        fontSize = if (isUltraCompact) 9.sp else if (isCompact) 10.sp else 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (bus.masterMute) NeonRose else NeonCyan
+                    )
+                    if (!isUltraCompact && !bus.masterMute) {
+                        Text(
+                            text = bus.getPeakDbString(),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (bus.peakMeter >= 0.88f) NeonRose else TextMuted
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            // Master Fader
+            // Master Fader with Full Stereo / Dual Audio Meters
+            val activeMeterL = bus.peakMeterL
+            val activeMeterR = bus.peakMeterR
+            val activeMeter = bus.peakMeter
+
             LargeTouchFader(
                 value = bus.masterLevel,
                 onValueChange = onMasterLevelChange,
-                peakMeter = if (bus.masterMute) 0.0f else bus.peakMeter,
+                peakMeter = activeMeter,
+                peakMeterL = activeMeterL,
+                peakMeterR = activeMeterR,
+                isMuted = bus.masterMute,
                 faderColor = accentColor,
                 width = if (isUltraCompact) 28.dp else if (isCompact) 36.dp else 50.dp,
                 showMeter = true,
