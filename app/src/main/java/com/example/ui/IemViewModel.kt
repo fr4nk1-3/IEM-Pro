@@ -23,6 +23,15 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
     val connectionState: StateFlow<MixerModelInfo> = oscClient.connectionState
     val discoveredMixers: StateFlow<List<MixerModelInfo>> = discoveryEngine.discoveredMixers
     val isScanning: StateFlow<Boolean> = discoveryEngine.isScanning
+    val hasCompletedScan: StateFlow<Boolean> = discoveryEngine.hasCompletedScan
+    val scanProgressText: StateFlow<String> = discoveryEngine.scanProgressText
+
+    private val _autoScanOnOpen = MutableStateFlow(true)
+    val autoScanOnOpen: StateFlow<Boolean> = _autoScanOnOpen.asStateFlow()
+
+    fun setAutoScanOnOpen(enabled: Boolean) {
+        _autoScanOnOpen.value = enabled
+    }
 
     // Profiles & Presets State
     val profiles: StateFlow<List<UserProfileEntity>> = repository.allProfiles
@@ -800,6 +809,10 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
     // Network & Scanner triggers
     fun startNetworkScan() {
         discoveryEngine.startScan()
+    }
+
+    fun cancelNetworkScan() {
+        discoveryEngine.cancelScan()
     }
 
     fun connectToMixer(ip: String, port: Int = 10023) {
