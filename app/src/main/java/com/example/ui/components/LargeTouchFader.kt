@@ -58,8 +58,9 @@ fun LargeTouchFader(
                 MeterBar(
                     level = peakMeter,
                     height = actualHeight,
-                    width = 6.dp,
-                    modifier = Modifier.padding(end = 4.dp)
+                    width = if (width < 32.dp) 6.dp else 7.dp,
+                    showTicks = (width >= 40.dp),
+                    modifier = Modifier.padding(end = if (width >= 40.dp) 2.dp else 3.dp)
                 )
             }
 

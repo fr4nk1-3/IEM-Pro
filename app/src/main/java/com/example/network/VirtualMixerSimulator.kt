@@ -94,15 +94,72 @@ class VirtualMixerSimulator {
         meterJob?.cancel()
         meterJob = scope.launch {
             while (isActive) {
-                delay(80) // 12.5 FPS meter updates
+                delay(50) // 20 FPS responsive real-time VU meter updates
                 simulatedTick++
-                val timeSec = simulatedTick * 0.08
-                
+                val timeSec = simulatedTick * 0.05
+                val beat4 = (timeSec * 2.0).rem(4.0) // 120 BPM tempo
+
                 for (ch in channels) {
-                    val beat = abs(sin(timeSec * 2.5 + ch.id)).toFloat()
-                    val noise = Random.nextFloat() * 0.15f
-                    val rawMeter = if (ch.isMuted) 0f else (beat * 0.7f + noise).coerceIn(0f, 1f)
-                    ch.peakMeter = rawMeter
+                    if (ch.isMuted) {
+                        ch.peakMeter = 0f
+                        continue
+                    }
+
+                    val dynamicLevel: Float = when (ch.groupTag) {
+                        "Drums" -> {
+                            when (ch.id) {
+                                1 -> { // Kick Drum: Strong pulse on beats 1 & 3
+                                    val kickBeat = (beat4 % 2.0)
+                                    if (kickBeat < 0.25) (0.85f - (kickBeat * 2.5f).toFloat()).coerceIn(0.1f, 0.88f) else 0.08f
+                                }
+                                2 -> { // Snare: Sharp snap on beats 2 & 4
+                                    val snareBeat = ((beat4 + 1.0) % 2.0)
+                                    if (snareBeat < 0.2) (0.92f - (snareBeat * 3.5f).toFloat()).coerceIn(0.08f, 0.95f) else 0.05f
+                                }
+                                3, 4 -> { // Hi-Hat / Ride: 8th/16th groove
+                                    val hat = abs(sin(timeSec * 12.0)).toFloat() * 0.45f + 0.15f
+                                    hat + Random.nextFloat() * 0.1f
+                                }
+                                else -> { // Toms / Overhead
+                                    val tom = abs(sin(timeSec * 3.0 + ch.id)).toFloat() * 0.55f + 0.1f
+                                    tom + Random.nextFloat() * 0.1f
+                                }
+                            }
+                        }
+                        "Bass" -> { // Steady rhythmic bass line
+                            val bassPulse = (sin(timeSec * 4.0).toFloat() * 0.35f + 0.5f) + (Random.nextFloat() * 0.08f)
+                            bassPulse.coerceIn(0.15f, 0.82f)
+                        }
+                        "Vocals" -> { // Vocal phrasing with dynamic swells and pauses
+                            val phrase = (sin(timeSec * 0.8 + ch.id).toFloat() * 0.5f + 0.4f)
+                            if (phrase > 0.15f) {
+                                val vibrato = abs(sin(timeSec * 6.0)).toFloat() * 0.2f
+                                (phrase * 0.7f + vibrato + Random.nextFloat() * 0.1f).coerceIn(0.1f, 0.88f)
+                            } else {
+                                0.02f // Breathing pause
+                            }
+                        }
+                        "Guitars" -> { // Strumming chords
+                            val strum = abs(sin(timeSec * 2.5 + ch.id * 0.5)).toFloat() * 0.55f + 0.2f
+                            (strum + Random.nextFloat() * 0.08f).coerceIn(0.1f, 0.85f)
+                        }
+                        "Keys" -> { // Piano / Synth pads
+                            val pad = (sin(timeSec * 1.5 + ch.id).toFloat() * 0.3f + 0.45f)
+                            (pad + Random.nextFloat() * 0.06f).coerceIn(0.1f, 0.78f)
+                        }
+                        "Horns" -> { // Brass stabs
+                            val stab = abs(sin(timeSec * 1.8 + ch.id)).toFloat()
+                            if (stab > 0.6f) (stab * 0.85f + Random.nextFloat() * 0.1f).coerceIn(0.2f, 0.90f) else 0.05f
+                        }
+                        else -> { // FX / Aux
+                            val ambient = abs(sin(timeSec * 1.0 + ch.id)).toFloat() * 0.4f + 0.1f
+                            ambient.coerceIn(0.05f, 0.65f)
+                        }
+                    }
+
+                    // Apply input gain scale
+                    val gainedLevel = (dynamicLevel * (0.5f + ch.inputGain * 0.8f)).coerceIn(0f, 1f)
+                    ch.peakMeter = gainedLevel
                 }
             }
         }

@@ -44,6 +44,16 @@ fun ConnectionHeader(
 ) {
     var showThemeMenu by remember { mutableStateOf(false) }
 
+    // Track reconnection attempts to show CHANGE button if reconnect fails
+    var hasAttemptedReconnect by remember(mixerInfo.ip, mixerInfo.port) { mutableStateOf(false) }
+
+    // Reset attempt when status becomes connected
+    LaunchedEffect(mixerInfo.status) {
+        if (mixerInfo.status == ConnectionStatus.CONNECTED || mixerInfo.status == ConnectionStatus.SIMULATION) {
+            hasAttemptedReconnect = false
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -201,7 +211,7 @@ fun ConnectionHeader(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .height(52.dp),
                 color = DarkSurfaceVariant,
                 shape = RoundedCornerShape(10.dp),
                 border = BorderStroke(1.dp, if (mixerInfo.status == ConnectionStatus.DISCONNECTED) NeonRose.copy(alpha = 0.6f) else DarkBorder)
@@ -209,7 +219,7 @@ fun ConnectionHeader(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -235,16 +245,20 @@ fun ConnectionHeader(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "CONNECTED MIXER",
+                                text = if (mixerInfo.status == ConnectionStatus.DISCONNECTED) "MIXER STATUS" else "CONNECTED MIXER",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextSecondary
                             )
                             Text(
-                                text = "${mixerInfo.model.uppercase()} (${if (mixerInfo.status == ConnectionStatus.CONNECTED || mixerInfo.status == ConnectionStatus.SIMULATION) "CONNECTED" else mixerInfo.status.name})",
+                                text = if (mixerInfo.status == ConnectionStatus.DISCONNECTED) {
+                                    "No Mixer Connected"
+                                } else {
+                                    "${mixerInfo.model.uppercase()} (${if (mixerInfo.status == ConnectionStatus.CONNECTED || mixerInfo.status == ConnectionStatus.SIMULATION) "CONNECTED" else mixerInfo.status.name})"
+                                },
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
+                                color = if (mixerInfo.status == ConnectionStatus.DISCONNECTED) NeonRose else TextPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -252,32 +266,65 @@ fun ConnectionHeader(
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (mixerInfo.status == ConnectionStatus.DISCONNECTED) {
-                            Surface(
-                                onClick = onReconnect,
-                                color = NeonRose,
-                                shape = RoundedCornerShape(6.dp),
-                                modifier = Modifier.height(30.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            if (!hasAttemptedReconnect) {
+                                // First show the RECONNECT button only
+                                Surface(
+                                    onClick = {
+                                        hasAttemptedReconnect = true
+                                        onReconnect()
+                                    },
+                                    color = NeonRose,
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.height(30.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Default.Refresh,
-                                        contentDescription = "Reconnect",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "RECONNECT",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = "Reconnect",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "RECONNECT",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            } else {
+                                // If reconnect failed/unable to reconnect, show CHANGE MIXER button only
+                                Surface(
+                                    onClick = onOpenDiscovery,
+                                    color = NeonCyan.copy(alpha = 0.2f),
+                                    border = BorderStroke(1.dp, NeonCyan),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Tune,
+                                            contentDescription = "Change Mixer",
+                                            tint = NeonCyan,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "CHANGE MIXER",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = NeonCyan
+                                        )
+                                    }
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
                         } else if (mixerInfo.status == ConnectionStatus.CONNECTING || mixerInfo.status == ConnectionStatus.RECONNECTING) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
@@ -285,25 +332,32 @@ fun ConnectionHeader(
                                 strokeWidth = 2.dp
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                        }
-
-                        Row(
-                            modifier = Modifier.clickable { onOpenDiscovery() },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
                             Text(
-                                text = "CHANGE",
-                                fontSize = 11.sp,
+                                text = "CONNECTING...",
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = NeonCyan
+                                color = NeonAmber
                             )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Icon(
-                                Icons.Default.ChevronRight,
-                                contentDescription = "Open Mixer Settings",
-                                tint = NeonCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        } else {
+                            // When connected or simulation, show CHANGE
+                            Row(
+                                modifier = Modifier.clickable { onOpenDiscovery() },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "CHANGE",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonCyan
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = "Open Mixer Settings",
+                                    tint = NeonCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }

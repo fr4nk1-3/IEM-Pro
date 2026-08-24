@@ -172,73 +172,76 @@ fun DiscoveryScreen(
                 .fillMaxWidth()
                 .background(DarkSurface)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBackToDashboard) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                Column {
+            IconButton(onClick = onBackToDashboard) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text(
                         text = "CONNECT TO MIXER",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = NeonCyan
                     )
-                    Text(
-                        text = "Auto-scan network or configure manual console IP",
-                        fontSize = 11.sp,
-                        color = TextSecondary
-                    )
-                }
-            }
 
-            // Status Badge
-            Surface(
-                color = when (currentConnection.status) {
-                    ConnectionStatus.CONNECTED -> NeonEmerald.copy(alpha = 0.2f)
-                    ConnectionStatus.SIMULATION -> NeonCyan.copy(alpha = 0.2f)
-                    ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> NeonAmber.copy(alpha = 0.2f)
-                    ConnectionStatus.DISCONNECTED -> DarkBorder.copy(alpha = 0.5f)
-                },
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(
-                    1.dp,
-                    when (currentConnection.status) {
-                        ConnectionStatus.CONNECTED -> NeonEmerald
-                        ConnectionStatus.SIMULATION -> NeonCyan
-                        ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> NeonAmber
-                        ConnectionStatus.DISCONNECTED -> DarkBorder
-                    }
-                )
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                when (currentConnection.status) {
-                                    ConnectionStatus.CONNECTED -> NeonEmerald
-                                    ConnectionStatus.SIMULATION -> NeonCyan
-                                    ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> NeonAmber
-                                    ConnectionStatus.DISCONNECTED -> NeonRose
-                                }
+                    // Status Badge inline with CONNECT TO MIXER text
+                    Surface(
+                        color = when (currentConnection.status) {
+                            ConnectionStatus.CONNECTED -> NeonEmerald.copy(alpha = 0.2f)
+                            ConnectionStatus.SIMULATION -> NeonCyan.copy(alpha = 0.2f)
+                            ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> NeonAmber.copy(alpha = 0.2f)
+                            ConnectionStatus.DISCONNECTED -> DarkBorder.copy(alpha = 0.5f)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            when (currentConnection.status) {
+                                ConnectionStatus.CONNECTED -> NeonEmerald
+                                ConnectionStatus.SIMULATION -> NeonCyan
+                                ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> NeonAmber
+                                ConnectionStatus.DISCONNECTED -> DarkBorder
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when (currentConnection.status) {
+                                            ConnectionStatus.CONNECTED -> NeonEmerald
+                                            ConnectionStatus.SIMULATION -> NeonCyan
+                                            ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> NeonAmber
+                                            ConnectionStatus.DISCONNECTED -> NeonRose
+                                        }
+                                    )
                             )
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = currentConnection.status.name,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = currentConnection.status.name,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
+                    }
                 }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Auto-scan network or configure manual console IP",
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
             }
         }
 
@@ -260,8 +263,7 @@ fun DiscoveryScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
-                    border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -271,13 +273,13 @@ fun DiscoveryScreen(
                         Icon(
                             Icons.Default.Computer,
                             contentDescription = "Virtual Offline Console",
-                            tint = NeonCyan,
+                            tint = Color.White,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "START VIRTUAL OFFLINE CONSOLE",
-                            color = NeonCyan,
+                            color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )

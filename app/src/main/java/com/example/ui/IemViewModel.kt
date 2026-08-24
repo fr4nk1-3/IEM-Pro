@@ -135,7 +135,7 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
         // Periodically refresh live channel peak meters and compute bus master meters
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(80)
+                kotlinx.coroutines.delay(50)
                 val chs = _channels.value
                 val buses = _buses.value
 

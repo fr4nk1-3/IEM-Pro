@@ -68,7 +68,7 @@ fun ChannelStripCard(
                 .padding(if (isUltraCompact) 3.dp else if (isCompact) 4.dp else 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header Color Accent Strip + Channel Number
+            // Header Color Accent Strip + Channel Number + Real-time SIG/CLIP LED
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -76,21 +76,40 @@ fun ChannelStripCard(
                     .background(colorAccent.copy(alpha = 0.2f))
                     .padding(horizontal = if (isUltraCompact) 2.dp else if (isCompact) 4.dp else 6.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (isUltraCompact) 5.dp else if (isCompact) 6.dp else 8.dp)
+                            .clip(CircleShape)
+                            .background(colorAccent)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = "CH ${channel.id.toString().padStart(2, '0')}",
+                        fontSize = if (isUltraCompact) 8.sp else if (isCompact) 9.sp else 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1
+                    )
+                }
+
+                // Real-time Input Signal / Clip LED indicator
+                val isClipping = channel.peakMeter >= 0.88f
+                val hasSignal = channel.peakMeter >= 0.05f
+                val sigColor = when {
+                    isClipping -> NeonRose
+                    hasSignal -> NeonEmerald
+                    else -> Color(0xFF1E293B)
+                }
+
                 Box(
                     modifier = Modifier
-                        .size(if (isUltraCompact) 5.dp else if (isCompact) 6.dp else 8.dp)
+                        .size(if (isUltraCompact) 5.dp else 7.dp)
                         .clip(CircleShape)
-                        .background(colorAccent)
-                )
-                Spacer(modifier = Modifier.width(3.dp))
-                Text(
-                    text = "CH ${channel.id.toString().padStart(2, '0')}",
-                    fontSize = if (isUltraCompact) 8.sp else if (isCompact) 9.sp else 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    maxLines = 1
+                        .background(sigColor)
+                        .border(0.5.dp, if (isClipping || hasSignal) sigColor else Color(0xFF334155), CircleShape)
                 )
             }
 
