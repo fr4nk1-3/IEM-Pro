@@ -29,6 +29,7 @@ import com.example.ui.theme.*
 fun LargeTouchFader(
     value: Float, // 0.0 .. 1.0
     onValueChange: (Float) -> Unit,
+    maxFaderLimit: Float = 1.0f,
     peakMeter: Float = 0f,
     peakMeterL: Float? = null,
     peakMeterR: Float? = null,
@@ -92,7 +93,7 @@ fun LargeTouchFader(
                     .onGloballyPositioned { coordinates ->
                         totalHeightPx = coordinates.size.height.toFloat().coerceAtLeast(1f)
                     }
-                    .pointerInput(Unit) {
+                    .pointerInput(maxFaderLimit) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             onDragStateChange?.invoke(true)
@@ -102,12 +103,12 @@ fun LargeTouchFader(
 
                                 val now = System.currentTimeMillis()
                                 if (now - lastTapTime < 300L) {
-                                    // Double tap -> reset to 0 dB (0.75f)
+                                    // Double tap -> reset to 0 dB (0.75f) capped at maxFaderLimit
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onValueChange(0.75f)
+                                    onValueChange(0.75f.coerceAtMost(maxFaderLimit))
                                     lastTapTime = 0L
                                 } else {
-                                    val newFraction = (1f - (down.position.y / totalHeightPx)).coerceIn(0f, 1f)
+                                    val newFraction = (1f - (down.position.y / totalHeightPx)).coerceIn(0f, maxFaderLimit)
                                     onValueChange(newFraction)
                                     lastTapTime = now
                                 }
@@ -118,7 +119,7 @@ fun LargeTouchFader(
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                     if (!change.pressed) break
                                     change.consume()
-                                    val newFraction = (1f - (change.position.y / totalHeightPx)).coerceIn(0f, 1f)
+                                    val newFraction = (1f - (change.position.y / totalHeightPx)).coerceIn(0f, maxFaderLimit)
                                     
                                     val crossedZeroDb = (previousVal < 0.75f && newFraction >= 0.75f) || (previousVal > 0.75f && newFraction <= 0.75f)
                                     if (crossedZeroDb) {
@@ -150,7 +151,7 @@ fun LargeTouchFader(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight(value.coerceIn(0f, 1f))
+                        .fillMaxHeight(value.coerceIn(0f, maxFaderLimit))
                         .background(Color(0xFF33425B).copy(alpha = 0.35f))
                 )
 
@@ -161,12 +162,34 @@ fun LargeTouchFader(
                         .fillMaxWidth()
                         .padding(bottom = lineBottomPadding)
                         .height(2.dp)
-                        .background(TextPrimary.copy(alpha = 0.5f))
+                        .background(TextPrimary.copy(alpha = if (maxFaderLimit >= 0.75f) 0.5f else 0.2f))
                 )
+
+                // Limiter Ceiling Indicator Line & Restricted Zone (when limiter is active)
+                if (maxFaderLimit < 0.999f) {
+                    val limitLineBottom = ((actualHeight * maxFaderLimit) - 1.dp).coerceAtLeast(0.dp)
+                    // Visual ceiling line
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = limitLineBottom)
+                            .height(2.5.dp)
+                            .background(NeonRose)
+                    )
+                    // Restricted zone shading above limit
+                    val restrictedHeight = (actualHeight * (1f - maxFaderLimit)).coerceAtLeast(0.dp)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .height(restrictedHeight)
+                            .background(NeonRose.copy(alpha = 0.12f))
+                    )
+                }
 
                 // Fader Handle / Cap (3D Textured Metallic Silver, 20% longer: 44.dp height)
                 val handleHeight = 44.dp
-                val handleBottomPadding = ((actualHeight - handleHeight).coerceAtLeast(0.dp) * value.coerceIn(0f, 1f))
+                val handleBottomPadding = ((actualHeight - handleHeight).coerceAtLeast(0.dp) * value.coerceIn(0f, maxFaderLimit))
                 Box(
                     modifier = Modifier
                         .padding(bottom = handleBottomPadding)

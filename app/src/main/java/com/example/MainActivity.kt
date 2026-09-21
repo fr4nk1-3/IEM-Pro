@@ -13,6 +13,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import com.example.model.ConnectionStatus
 import com.example.ui.IemViewModel
@@ -39,37 +40,37 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appThemeMode by viewModel.appThemeMode.collectAsState()
+            var isSplashActive by rememberSaveable { mutableStateOf(true) }
+            var currentScreen by rememberSaveable { mutableStateOf(Screen.DISCOVERY) }
+            val snackbarHostState = remember { SnackbarHostState() }
+            val notificationMessage by viewModel.notificationMessage.collectAsState()
+            val connectionInfo by viewModel.connectionState.collectAsState()
 
             IemMixerTheme(themeMode = appThemeMode) {
-                var isSplashActive by remember { mutableStateOf(true) }
-                var currentScreen by remember { mutableStateOf(Screen.DISCOVERY) }
-                val snackbarHostState = remember { SnackbarHostState() }
-                val notificationMessage by viewModel.notificationMessage.collectAsState()
-                val connectionInfo by viewModel.connectionState.collectAsState()
-                val isConnected = connectionInfo.status == ConnectionStatus.CONNECTED || connectionInfo.status == ConnectionStatus.SIMULATION
-
                 if (isSplashActive) {
                     SplashScreen(
                         onSplashFinished = { isSplashActive = false }
                     )
                 } else {
                     val navigateToAccountSetupWithCheck = {
-                    if (isConnected) {
-                        currentScreen = Screen.ACCOUNT_SETUP
-                    } else {
-                        viewModel.showNotification("Mixer connection required before account setup!")
-                        currentScreen = Screen.DISCOVERY
+                        val isConnectedNow = viewModel.connectionState.value.status == ConnectionStatus.CONNECTED || viewModel.connectionState.value.status == ConnectionStatus.SIMULATION
+                        if (isConnectedNow) {
+                            currentScreen = Screen.ACCOUNT_SETUP
+                        } else {
+                            viewModel.showNotification("Mixer connection required before account setup!")
+                            currentScreen = Screen.DISCOVERY
+                        }
                     }
-                }
 
-                val navigateToProfilesWithCheck = {
-                    if (isConnected) {
-                        currentScreen = Screen.PROFILES
-                    } else {
-                        viewModel.showNotification("Mixer connection required before profile setup!")
-                        currentScreen = Screen.DISCOVERY
+                    val navigateToProfilesWithCheck = {
+                        val isConnectedNow = viewModel.connectionState.value.status == ConnectionStatus.CONNECTED || viewModel.connectionState.value.status == ConnectionStatus.SIMULATION
+                        if (isConnectedNow) {
+                            currentScreen = Screen.PROFILES
+                        } else {
+                            viewModel.showNotification("Mixer connection required before profile setup!")
+                            currentScreen = Screen.DISCOVERY
+                        }
                     }
-                }
 
                 LaunchedEffect(notificationMessage) {
                     notificationMessage?.let { msg ->

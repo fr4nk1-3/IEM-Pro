@@ -45,6 +45,11 @@ data class MixBusState(
     var peakMeterL: Float = 0.0f,
     var peakMeterR: Float = 0.0f
 ) {
+    fun getMaxFaderLevel(): Float {
+        if (!limiterActive) return 1.0f
+        return ChannelState.dbToFader(limiterThresholdDb)
+    }
+
     fun getMasterDbString(): String {
         return ChannelState.faderToDbString(masterLevel)
     }

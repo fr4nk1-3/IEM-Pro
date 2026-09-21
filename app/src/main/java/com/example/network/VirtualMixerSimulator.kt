@@ -33,18 +33,18 @@ class VirtualMixerSimulator {
             busSendPans = MutableList(16) { 0.5f },
             busSendMutes = MutableList(16) { false },
             isFavorite = chNum in listOf(1, 2, 5, 8, 10),
-            groupTag = when (chNum) {
-                in 1..8 -> "Drums"
-                in 9..10 -> "Bass"
-                in 11..14 -> "Guitars"
-                in 15..18 -> "Keys"
-                in 19..24 -> "Vocals"
-                in 25..28 -> "Horns"
-                else -> "FX"
-            },
+            groupTag = "All",
             inputGain = 0.5f,
             phantomPower = chNum in listOf(1, 2, 10, 11),
+            lowCutActive = chNum !in listOf(1, 11), // Low cut active on all instruments/vocals except Sub Kick and Bass
+            lowCutFreq = when (chNum) {
+                in 22..26 -> 120f // Vocals HPF 120Hz
+                in 13..16 -> 100f // Guitars HPF 100Hz
+                3, 4 -> 80f // Snare HPF 80Hz
+                else -> 80f
+            },
             eqActive = true,
+            eqBands = getPresetChannelEqBands(chNum),
             gateActive = chNum in 1..4,
             compActive = true
         )
@@ -76,7 +76,7 @@ class VirtualMixerSimulator {
                 5 -> X32Color.GREEN
                 else -> X32Color.RED
             },
-            masterLevel = 0.8f,
+            masterLevel = 0.60f, // Default -6dBFS limiter cap
             masterMute = false,
             isStereoLinked = (busNum % 2 == 1 && busNum <= 8),
             linkedBusId = if (busNum % 2 == 1 && busNum <= 8) busNum + 1 else null
@@ -105,8 +105,8 @@ class VirtualMixerSimulator {
                         continue
                     }
 
-                    val dynamicLevel: Float = when (ch.groupTag) {
-                        "Drums" -> {
+                    val dynamicLevel: Float = when (ch.id) {
+                        in 1..8 -> { // Drums
                             when (ch.id) {
                                 1 -> { // Kick Drum: Strong pulse on beats 1 & 3
                                     val kickBeat = (beat4 % 2.0)
@@ -126,11 +126,11 @@ class VirtualMixerSimulator {
                                 }
                             }
                         }
-                        "Bass" -> { // Steady rhythmic bass line
+                        in 9..10 -> { // Bass: Steady rhythmic bass line
                             val bassPulse = (sin(timeSec * 4.0).toFloat() * 0.35f + 0.5f) + (Random.nextFloat() * 0.08f)
                             bassPulse.coerceIn(0.15f, 0.82f)
                         }
-                        "Vocals" -> { // Vocal phrasing with dynamic swells and pauses
+                        in 19..24 -> { // Vocals: Dynamic swells and pauses
                             val phrase = (sin(timeSec * 0.8 + ch.id).toFloat() * 0.5f + 0.4f)
                             if (phrase > 0.15f) {
                                 val vibrato = abs(sin(timeSec * 6.0)).toFloat() * 0.2f
@@ -139,15 +139,15 @@ class VirtualMixerSimulator {
                                 0.02f // Breathing pause
                             }
                         }
-                        "Guitars" -> { // Strumming chords
+                        in 11..14 -> { // Guitars: Strumming chords
                             val strum = abs(sin(timeSec * 2.5 + ch.id * 0.5)).toFloat() * 0.55f + 0.2f
                             (strum + Random.nextFloat() * 0.08f).coerceIn(0.1f, 0.85f)
                         }
-                        "Keys" -> { // Piano / Synth pads
+                        in 15..18 -> { // Keys: Piano / Synth pads
                             val pad = (sin(timeSec * 1.5 + ch.id).toFloat() * 0.3f + 0.45f)
                             (pad + Random.nextFloat() * 0.06f).coerceIn(0.1f, 0.78f)
                         }
-                        "Horns" -> { // Brass stabs
+                        in 25..28 -> { // Horns: Brass stabs
                             val stab = abs(sin(timeSec * 1.8 + ch.id)).toFloat()
                             if (stab > 0.6f) (stab * 0.85f + Random.nextFloat() * 0.1f).coerceIn(0.2f, 0.90f) else 0.05f
                         }
@@ -213,6 +213,15 @@ class VirtualMixerSimulator {
                         } else if (addr.endsWith("/config/icon")) {
                             val newIcon = (msg.arguments.firstOrNull() as? String) ?: ch.iconType
                             ch.iconType = newIcon
+                        } else if (addr.endsWith("/preamp/hpon") || addr.endsWith("/config/hpon")) {
+                            val pVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 0
+                            ch.lowCutActive = (pVal == 1)
+                        } else if (addr.endsWith("/preamp/hpf") || addr.endsWith("/config/hpf")) {
+                            val fVal = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: 80f
+                            ch.lowCutFreq = fVal
+                        } else if (addr.endsWith("/eq/on")) {
+                            val eqVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
+                            ch.eqActive = (eqVal == 1)
                         }
                     }
                 }
@@ -229,6 +238,12 @@ class VirtualMixerSimulator {
                         } else if (addr.endsWith("/phantom")) {
                             val pVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 0
                             ch.phantomPower = (pVal == 1)
+                        } else if (addr.endsWith("/hpon")) {
+                            val pVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 0
+                            ch.lowCutActive = (pVal == 1)
+                        } else if (addr.endsWith("/hpf")) {
+                            val fVal = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: 80f
+                            ch.lowCutFreq = fVal
                         }
                     }
                 }
@@ -241,7 +256,7 @@ class VirtualMixerSimulator {
                         val bus = buses[busIdx]
                         if (addr.endsWith("/mix/fader")) {
                             val floatVal = (msg.arguments.firstOrNull() as? Float) ?: 0.8f
-                            bus.masterLevel = floatVal
+                            bus.masterLevel = if (bus.limiterActive) floatVal.coerceAtMost(bus.getMaxFaderLevel()) else floatVal
                         } else if (addr.endsWith("/mix/on")) {
                             val intVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
                             bus.masterMute = (intVal == 0)
@@ -281,9 +296,15 @@ class VirtualMixerSimulator {
                         } else if (addr.endsWith("/dyn/on")) {
                             val limVal = (msg.arguments.firstOrNull() as? Number)?.toInt() ?: 1
                             bus.limiterActive = (limVal == 1)
+                            if (bus.limiterActive) {
+                                bus.masterLevel = bus.masterLevel.coerceAtMost(bus.getMaxFaderLevel())
+                            }
                         } else if (addr.endsWith("/dyn/thresh")) {
                             val thresh = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: -6f
                             bus.limiterThresholdDb = thresh
+                            if (bus.limiterActive) {
+                                bus.masterLevel = bus.masterLevel.coerceAtMost(bus.getMaxFaderLevel())
+                            }
                         } else if (addr.endsWith("/delay/time")) {
                             val delMs = (msg.arguments.firstOrNull() as? Number)?.toFloat() ?: 0f
                             bus.outputDelayMs = delMs
@@ -294,6 +315,47 @@ class VirtualMixerSimulator {
                     }
                 }
             }
+        }
+    }
+
+    private fun getPresetChannelEqBands(chNum: Int): List<com.example.model.BusEqBand> {
+        return when (chNum) {
+            1, 2 -> listOf( // Kick Drum: Low boost, mid scoop, high beater click
+                com.example.model.BusEqBand(1, "Low Shelf", 60f, 4.5f, 0.8f),
+                com.example.model.BusEqBand(2, "Low Mid", 350f, -6.0f, 1.8f),
+                com.example.model.BusEqBand(3, "High Mid", 3200f, 3.5f, 1.4f),
+                com.example.model.BusEqBand(4, "High Shelf", 9000f, -2.0f, 0.7f)
+            )
+            3, 4 -> listOf( // Snare: Body punch, boxy dip, sizzle boost
+                com.example.model.BusEqBand(1, "Low Shelf", 150f, 2.0f, 0.9f),
+                com.example.model.BusEqBand(2, "Low Mid", 600f, -3.5f, 1.5f),
+                com.example.model.BusEqBand(3, "High Mid", 4500f, 4.0f, 1.2f),
+                com.example.model.BusEqBand(4, "High Shelf", 10000f, 2.5f, 0.7f)
+            )
+            11, 12 -> listOf( // Bass Guitar: Sub warmth, mid cut, attack
+                com.example.model.BusEqBand(1, "Low Shelf", 90f, 3.0f, 0.8f),
+                com.example.model.BusEqBand(2, "Low Mid", 400f, -4.5f, 1.6f),
+                com.example.model.BusEqBand(3, "High Mid", 1800f, 2.5f, 1.5f),
+                com.example.model.BusEqBand(4, "High Shelf", 6000f, -5.0f, 0.7f)
+            )
+            13, 14, 15 -> listOf( // Guitars: Low cut, bite, sparkle
+                com.example.model.BusEqBand(1, "Low Shelf", 120f, -2.0f, 0.7f),
+                com.example.model.BusEqBand(2, "Low Mid", 750f, -2.5f, 1.2f),
+                com.example.model.BusEqBand(3, "High Mid", 2800f, 3.0f, 1.3f),
+                com.example.model.BusEqBand(4, "High Shelf", 8500f, 1.5f, 0.7f)
+            )
+            22, 23, 24, 25, 26 -> listOf( // Vocals: High-pass warmth, mud cleanup, presence, air
+                com.example.model.BusEqBand(1, "Low Shelf", 100f, -3.0f, 0.7f),
+                com.example.model.BusEqBand(2, "Low Mid", 450f, -2.5f, 1.4f),
+                com.example.model.BusEqBand(3, "High Mid", 3500f, 3.5f, 1.2f),
+                com.example.model.BusEqBand(4, "High Shelf", 11000f, 4.0f, 0.7f)
+            )
+            else -> listOf(
+                com.example.model.BusEqBand(1, "Low Cut", 80f, 0f, 0.7f),
+                com.example.model.BusEqBand(2, "Low Mid", 250f, 0f, 1.0f),
+                com.example.model.BusEqBand(3, "High Mid", 2500f, 0f, 1.0f),
+                com.example.model.BusEqBand(4, "High", 8000f, 0f, 0.7f)
+            )
         }
     }
 

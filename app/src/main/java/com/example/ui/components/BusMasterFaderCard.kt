@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.MixBusState
 import com.example.ui.theme.*
+import com.example.ui.util.HapticFeedbackHelper
 
 @Composable
 fun BusMasterFaderCard(
@@ -38,6 +40,7 @@ fun BusMasterFaderCard(
     var isAdjusting by remember { mutableStateOf(false) }
     val effectiveSelected = isSelected || isAdjusting
 
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val accentColor = if (bus.masterMute) NeonRose else NeonAmber
     val isUltraCompact = cardWidth < 72.dp
@@ -171,19 +174,29 @@ fun BusMasterFaderCard(
                             color = if (bus.peakMeter >= 0.88f) NeonRose else TextMuted
                         )
                     }
+                    if (bus.limiterActive) {
+                        Text(
+                            text = "LIM ${bus.limiterThresholdDb.toInt()}dB",
+                            fontSize = if (isUltraCompact) 7.sp else 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonRose
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            // Master Fader with Full Stereo / Dual Audio Meters
-            val activeMeterL = bus.peakMeterL
-            val activeMeterR = bus.peakMeterR
+            // Master Fader with Stereo / Mono Audio Meters
+            val isStereo = bus.isStereoLinked
+            val activeMeterL = if (isStereo) bus.peakMeterL else null
+            val activeMeterR = if (isStereo) bus.peakMeterR else null
             val activeMeter = bus.peakMeter
 
             LargeTouchFader(
-                value = bus.masterLevel,
+                value = bus.masterLevel.coerceAtMost(bus.getMaxFaderLevel()),
                 onValueChange = onMasterLevelChange,
+                maxFaderLimit = bus.getMaxFaderLevel(),
                 peakMeter = activeMeter,
                 peakMeterL = activeMeterL,
                 peakMeterR = activeMeterR,
@@ -205,7 +218,7 @@ fun BusMasterFaderCard(
             // Bus Master Mute Button
             Button(
                 onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    HapticFeedbackHelper.triggerBusMuteFeedback(context, haptic)
                     onMasterMuteToggle()
                 },
                 colors = ButtonDefaults.buttonColors(

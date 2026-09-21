@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.ConnectionStatus
@@ -45,62 +46,88 @@ fun MixbusSelectionScreen(
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Top Navigation Header
-        Row(
+        // Top Navigation Header with horizontal simulation indicator accommodation
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(DarkSurface)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBackToDiscovery) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back to Setup",
-                        tint = TextPrimary
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    IconButton(
+                        onClick = onBackToDiscovery,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Setup",
+                            tint = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "STEP 2: SELECT YOUR MIXBUS",
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = NeonCyan
+                        color = NeonCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = "Connected to ${connectionInfo.model} (${connectionInfo.ip})",
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Simulation / Online Status Badge - Horizontal, never wraps vertically
+                Surface(
+                    color = if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald.copy(alpha = 0.18f) else NeonAmber.copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald else NeonAmber)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald else NeonAmber)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (connectionInfo.status == ConnectionStatus.CONNECTED) "ONLINE" else "SIMULATION",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald else NeonAmber,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
 
-            Surface(
-                color = if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald.copy(alpha = 0.2f) else NeonAmber.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald else NeonAmber)
+            // Connection Info Subtitle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 42.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald else NeonAmber)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (connectionInfo.status == ConnectionStatus.CONNECTED) "ONLINE" else "SIMULATION",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (connectionInfo.status == ConnectionStatus.CONNECTED) NeonEmerald else NeonAmber
-                    )
-                }
+                Text(
+                    text = "Connected to ${connectionInfo.model} (${connectionInfo.ip})",
+                    fontSize = 11.sp,
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
@@ -340,11 +367,11 @@ fun MixbusSelectionScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "SELECTED MONITOR",
                         fontSize = 10.sp,
@@ -355,9 +382,13 @@ fun MixbusSelectionScreen(
                         text = "BUS $selectedBusId • ${buses.getOrNull(selectedBusId - 1)?.name ?: "MixBus $selectedBusId"}",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = NeonCyan
+                        color = NeonCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Spacer(modifier = Modifier.width(12.dp))
 
                 Button(
                     onClick = {
@@ -366,20 +397,14 @@ fun MixbusSelectionScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.height(48.dp)
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
+                    modifier = Modifier.height(44.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "LOCK MIXBUS & START MIXING",
+                        text = "Select",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = 14.sp
                     )
                 }
             }

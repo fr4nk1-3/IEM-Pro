@@ -22,7 +22,7 @@ data class AppColors(
     val magenta: Color,
     val purple: Color,
     val isGlass: Boolean = false,
-    val themeMode: AppThemeMode = AppThemeMode.GLASSMORPHISM
+    val themeMode: AppThemeMode = AppThemeMode.CQ_MIXPAD
 )
 
 // Dark Metallic Grey Console Palette
@@ -63,26 +63,6 @@ val LightAppColors = AppColors(
     purple = Color(0xFF6D28D9),      // Purple 700
     isGlass = false,
     themeMode = AppThemeMode.LIGHT
-)
-
-// Glassmorphism Palette (Translucent Frosted Glass with Glowing Neon Borders)
-val GlassmorphismAppColors = AppColors(
-    background = Color(0xFF070B14),  // Deep obsidian with ambient glow background
-    surface = Color(0x331E293B),     // Frosted 20% slate glass
-    surfaceVariant = Color(0x40334155), // Translucent 25% glass variant
-    border = Color(0x5538BDF8),      // Glowing frosted cyan edge
-    textPrimary = Color(0xFFFFFFFF),
-    textSecondary = Color(0xFFCBD5E1),
-    textMuted = Color(0xFF94A3B8),
-    cyan = Color(0xFF38BDF8),        // Electric Cyan
-    blue = Color(0xFF60A5FA),
-    emerald = Color(0xFF34D399),
-    amber = Color(0xFFFBBF24),
-    rose = Color(0xFFF43F5E),
-    magenta = Color(0xFFF472B6),
-    purple = Color(0xFFA78BFA),
-    isGlass = true,
-    themeMode = AppThemeMode.GLASSMORPHISM
 )
 
 val LocalAppColors = staticCompositionLocalOf { CQMixPadAppColors }

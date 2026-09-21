@@ -72,6 +72,9 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
     )
     val groupLevels: StateFlow<Map<String, Float>> = _groupLevels.asStateFlow()
 
+    // Base fader ratio levels set by the user in the faders section: Pair(channelId, busIndex) -> Baseline Level (0.0..1.0)
+    private val channelSendBaselines = mutableMapOf<Pair<Int, Int>, Float>()
+
     // Custom groups for active profile
     private val _customGroups = MutableStateFlow<Map<String, List<Int>>>(emptyMap())
     val customGroups: StateFlow<Map<String, List<Int>>> = _customGroups.asStateFlow()
@@ -387,6 +390,16 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
             list[idx] = oldCh.copy(busSendLevels = newLevels)
             _channels.value = list.toList()
 
+            // Update baseline reference for ratio-based group fader scaling
+            val groupTag = oldCh.groupTag
+            val currentGroupLvl = _groupLevels.value[groupTag] ?: 0.8f
+            val baseLevel = if (currentGroupLvl > 0.05f) {
+                (newLevel / (currentGroupLvl / 0.8f)).coerceIn(0f, 1f)
+            } else {
+                newLevel
+            }
+            channelSendBaselines[Pair(channelId, busIndex)] = baseLevel
+
             // Send OSC message to mixer
             val chStr = String.format("%02d", channelId)
             val busStr = String.format("%02d", busIndex + 1)
@@ -434,12 +447,14 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
     fun updateMasterBusLevel(busIndex: Int, newLevel: Float) {
         val list = _buses.value.toMutableList()
         if (busIndex in list.indices) {
-            val bus = list[busIndex].copy(masterLevel = newLevel)
+            val maxLevel = list[busIndex].getMaxFaderLevel()
+            val clampedLevel = newLevel.coerceIn(0f, maxLevel)
+            val bus = list[busIndex].copy(masterLevel = clampedLevel)
             list[busIndex] = bus
             _buses.value = list
 
             val busStr = String.format("%02d", busIndex + 1)
-            oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/fader", listOf(newLevel)))
+            oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/fader", listOf(clampedLevel)))
         }
     }
 
@@ -515,13 +530,20 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
         val list = _buses.value.toMutableList()
         if (busIdx in list.indices) {
             val newLimiter = !list[busIdx].limiterActive
-            list[busIdx] = list[busIdx].copy(limiterActive = newLimiter)
+            var bus = list[busIdx].copy(limiterActive = newLimiter)
+            val maxLevel = bus.getMaxFaderLevel()
+            if (bus.limiterActive && bus.masterLevel > maxLevel) {
+                bus = bus.copy(masterLevel = maxLevel)
+                val busStr = String.format("%02d", busId)
+                oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/fader", listOf(maxLevel)))
+            }
+            list[busIdx] = bus
             _buses.value = list
 
             val busStr = String.format("%02d", busId)
             oscClient.sendOscMessage(OscMessage("/bus/$busStr/dyn/on", listOf(if (newLimiter) 1 else 0)))
 
-            showNotification("Bus $busId Ear Protection Limiter ${if (newLimiter) "ON" else "OFF"}")
+            showNotification("Bus $busId Ear Protection Limiter ${if (newLimiter) "ON (Capped at ${bus.limiterThresholdDb.toInt()}dB)" else "OFF"}")
         }
     }
 
@@ -529,11 +551,33 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
         val busIdx = busId - 1
         val list = _buses.value.toMutableList()
         if (busIdx in list.indices) {
-            list[busIdx] = list[busIdx].copy(limiterThresholdDb = thresholdDb)
+            var bus = list[busIdx].copy(limiterThresholdDb = thresholdDb)
+            val maxLevel = bus.getMaxFaderLevel()
+            if (bus.limiterActive && bus.masterLevel > maxLevel) {
+                bus = bus.copy(masterLevel = maxLevel)
+                val busStr = String.format("%02d", busId)
+                oscClient.sendOscMessage(OscMessage("/bus/$busStr/mix/fader", listOf(maxLevel)))
+            }
+            list[busIdx] = bus
             _buses.value = list
 
             val busStr = String.format("%02d", busId)
             oscClient.sendOscMessage(OscMessage("/bus/$busStr/dyn/thresh", listOf(thresholdDb)))
+        }
+    }
+
+    fun toggleChannelEq(channelId: Int) {
+        val chIdx = channelId - 1
+        val list = _channels.value.toMutableList()
+        if (chIdx in list.indices) {
+            val newEq = !list[chIdx].eqActive
+            list[chIdx] = list[chIdx].copy(eqActive = newEq)
+            _channels.value = list
+
+            val chStr = String.format("%02d", channelId)
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/eq/on", listOf(if (newEq) 1 else 0)))
+
+            showNotification("Channel $channelId EQ ${if (newEq) "ACTIVE" else "BYPASSED"}")
         }
     }
 
@@ -679,22 +723,28 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateGroupSubmixLevel(groupTag: String, newGroupLevel: Float) {
         val currentMap = _groupLevels.value.toMutableMap()
-        val oldLevel = currentMap[groupTag] ?: 0.8f
-        val delta = newGroupLevel - oldLevel
         currentMap[groupTag] = newGroupLevel
         _groupLevels.value = currentMap
 
         val activeBus = _activeBusIndex.value
         val list = _channels.value.toMutableList()
+        val groupChIds = _customGroups.value[groupTag]
+        val scaleFactor = newGroupLevel / 0.8f // 0.8f is nominal group fader center
+
         for (i in list.indices) {
-            if (list[i].groupTag.equals(groupTag, ignoreCase = true)) {
-                val currentSend = list[i].busSendLevels.getOrElse(activeBus) { 0.75f }
-                val adjusted = (currentSend + delta).coerceIn(0f, 1f)
-                val newLevels = list[i].busSendLevels.toMutableList().apply {
+            val ch = list[i]
+            val isMember = (groupChIds != null && groupChIds.contains(ch.id)) || ch.groupTag.equals(groupTag, ignoreCase = true)
+            if (isMember) {
+                val key = Pair(ch.id, activeBus)
+                val baseLevel = channelSendBaselines.getOrPut(key) {
+                    ch.busSendLevels.getOrElse(activeBus) { 0.75f }
+                }
+                val adjusted = (baseLevel * scaleFactor).coerceIn(0f, 1f)
+                val newLevels = ch.busSendLevels.toMutableList().apply {
                     if (activeBus in indices) this[activeBus] = adjusted
                 }
-                val ch = list[i].copy(busSendLevels = newLevels)
-                list[i] = ch
+                val updatedCh = ch.copy(busSendLevels = newLevels)
+                list[i] = updatedCh
 
                 val chStr = String.format("%02d", ch.id)
                 val busStr = String.format("%02d", activeBus + 1)
@@ -707,12 +757,16 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleGroupMute(groupTag: String) {
         val activeBus = _activeBusIndex.value
         val list = _channels.value.toMutableList()
-        val groupChannels = list.filter { it.groupTag.equals(groupTag, ignoreCase = true) }
+        val groupChIds = _customGroups.value[groupTag]
+        val isMember: (ChannelState) -> Boolean = { ch ->
+            (groupChIds != null && groupChIds.contains(ch.id)) || ch.groupTag.equals(groupTag, ignoreCase = true)
+        }
+        val groupChannels = list.filter(isMember)
         val anyUnmuted = groupChannels.any { !it.busSendMutes.getOrElse(activeBus) { false } }
         val targetMute = anyUnmuted
 
         for (i in list.indices) {
-            if (list[i].groupTag.equals(groupTag, ignoreCase = true)) {
+            if (isMember(list[i])) {
                 val oldCh = list[i]
                 val newMutes = oldCh.busSendMutes.toMutableList().apply {
                     if (activeBus in indices) this[activeBus] = targetMute
@@ -770,6 +824,39 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
 
             val chStr = String.format("%02d", channelId)
             oscClient.sendOscMessage(OscMessage("/headamp/$chStr/phantom", listOf(if (new48V) 1 else 0)))
+        }
+    }
+
+    fun toggleEngineerLowCut(channelId: Int) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val newActive = !list[idx].lowCutActive
+            val ch = list[idx].copy(lowCutActive = newActive)
+            list[idx] = ch
+            _channels.value = list
+
+            val chStr = String.format("%02d", channelId)
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/preamp/hpon", listOf(if (newActive) 1 else 0)))
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/hpon", listOf(if (newActive) 1 else 0)))
+            oscClient.sendOscMessage(OscMessage("/headamp/$chStr/hpon", listOf(if (newActive) 1 else 0)))
+            showNotification("Channel $channelId Low Cut ${if (newActive) "ON (${ch.lowCutFreq.toInt()}Hz)" else "OFF"}")
+        }
+    }
+
+    fun updateEngineerLowCutFreq(channelId: Int, freqHz: Float) {
+        val list = _channels.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == channelId }
+        if (idx != -1) {
+            val clamped = freqHz.coerceIn(20f, 400f)
+            val ch = list[idx].copy(lowCutFreq = clamped)
+            list[idx] = ch
+            _channels.value = list
+
+            val chStr = String.format("%02d", channelId)
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/preamp/hpf", listOf(clamped)))
+            oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/hpf", listOf(clamped)))
+            oscClient.sendOscMessage(OscMessage("/headamp/$chStr/hpf", listOf(clamped)))
         }
     }
 
@@ -871,10 +958,12 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
             if (oscClient.isSimulatorActive) {
                 _channels.value = oscClient.simulator.channels.map { it.copy() }
                 _buses.value = oscClient.simulator.buses.map { it.copy() }
+                _activeProfile.value?.let { applyProfileGroups(it) }
             } else {
                 // Pre-populate 32 channels if missing so incoming OSC updates aren't ignored
                 if (_channels.value.size < 32) {
                     _channels.value = oscClient.simulator.channels.map { it.copy() }
+                    _activeProfile.value?.let { applyProfileGroups(it) }
                 }
                 // Request live data from connected hardware mixer over OSC
                 for (chId in 1..32) {
@@ -884,6 +973,16 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                     oscClient.sendOscMessage(OscMessage("/ch/$chStr/config/icon"))
                     oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/fader"))
                     oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/on"))
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/eq/on"))
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/preamp/hpon"))
+                    oscClient.sendOscMessage(OscMessage("/ch/$chStr/preamp/hpf"))
+                    oscClient.sendOscMessage(OscMessage("/headamp/$chStr/gain"))
+                    oscClient.sendOscMessage(OscMessage("/headamp/$chStr/phantom"))
+                    for (bId in 1..4) {
+                        oscClient.sendOscMessage(OscMessage("/ch/$chStr/eq/$bId/g"))
+                        oscClient.sendOscMessage(OscMessage("/ch/$chStr/eq/$bId/f"))
+                        oscClient.sendOscMessage(OscMessage("/ch/$chStr/eq/$bId/q"))
+                    }
                     for (busId in 1..16) {
                         val busStr = String.format("%02d", busId)
                         oscClient.sendOscMessage(OscMessage("/ch/$chStr/mix/$busStr/level"))
@@ -924,6 +1023,28 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                     } else if (addr.endsWith("/mix/on") && msg.arguments.isNotEmpty()) {
                         val isOn = (msg.arguments[0] as? Number)?.toInt() == 1
                         ch.isMuted = !isOn
+                    } else if (addr.endsWith("/eq/on") && msg.arguments.isNotEmpty()) {
+                        val eqOn = (msg.arguments[0] as? Number)?.toInt() == 1
+                        ch.eqActive = eqOn
+                    } else if ((addr.endsWith("/preamp/hpon") || addr.endsWith("/config/hpon")) && msg.arguments.isNotEmpty()) {
+                        val hpOn = (msg.arguments[0] as? Number)?.toInt() == 1
+                        ch.lowCutActive = hpOn
+                    } else if ((addr.endsWith("/preamp/hpf") || addr.endsWith("/config/hpf")) && msg.arguments.isNotEmpty()) {
+                        val hpFreq = (msg.arguments[0] as? Number)?.toFloat() ?: 80f
+                        ch.lowCutFreq = hpFreq
+                    } else if (addr.contains("/eq/") && msg.arguments.isNotEmpty()) {
+                        val bandNum = parts.getOrNull(4)?.toIntOrNull()
+                        if (bandNum != null && bandNum in 1..4) {
+                            val bIdx = bandNum - 1
+                            val bands = ch.eqBands.toMutableList()
+                            if (bIdx in bands.indices) {
+                                val paramVal = (msg.arguments[0] as? Number)?.toFloat() ?: 0f
+                                if (addr.endsWith("/g")) bands[bIdx] = bands[bIdx].copy(gainDb = paramVal)
+                                else if (addr.endsWith("/f")) bands[bIdx] = bands[bIdx].copy(freqHz = paramVal)
+                                else if (addr.endsWith("/q")) bands[bIdx] = bands[bIdx].copy(qFactor = paramVal)
+                                ch.eqBands = bands
+                            }
+                        }
                     } else if (parts.size >= 5 && parts[3] == "mix") {
                         val busIdx = parts[4].toIntOrNull()?.minus(1)
                         if (busIdx != null && busIdx in 0..15) {
@@ -960,7 +1081,9 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                         val cId = (msg.arguments[0] as? Number)?.toInt() ?: 6
                         bus.color = X32Color.fromId(cId)
                     } else if (addr.endsWith("/mix/fader") && msg.arguments.isNotEmpty()) {
-                        bus.masterLevel = (msg.arguments[0] as? Number)?.toFloat() ?: bus.masterLevel
+                        val fVal = (msg.arguments[0] as? Number)?.toFloat() ?: bus.masterLevel
+                        val maxLvl = bus.getMaxFaderLevel()
+                        bus.masterLevel = if (bus.limiterActive) fVal.coerceAtMost(maxLvl) else fVal
                     } else if (addr.endsWith("/mix/on") && msg.arguments.isNotEmpty()) {
                         val isOn = (msg.arguments[0] as? Number)?.toInt() == 1
                         bus.masterMute = !isOn
@@ -988,8 +1111,14 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     } else if (addr.endsWith("/dyn/on") && msg.arguments.isNotEmpty()) {
                         bus.limiterActive = (msg.arguments[0] as? Number)?.toInt() == 1
+                        if (bus.limiterActive) {
+                            bus.masterLevel = bus.masterLevel.coerceAtMost(bus.getMaxFaderLevel())
+                        }
                     } else if (addr.endsWith("/dyn/thresh") && msg.arguments.isNotEmpty()) {
                         bus.limiterThresholdDb = (msg.arguments[0] as? Number)?.toFloat() ?: bus.limiterThresholdDb
+                        if (bus.limiterActive) {
+                            bus.masterLevel = bus.masterLevel.coerceAtMost(bus.getMaxFaderLevel())
+                        }
                     } else if (addr.endsWith("/delay/time") && msg.arguments.isNotEmpty()) {
                         bus.outputDelayMs = (msg.arguments[0] as? Number)?.toFloat() ?: bus.outputDelayMs
                     } else if (addr.endsWith("/preamp/invert") && msg.arguments.isNotEmpty()) {
@@ -997,6 +1126,26 @@ class IemViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     list[busIdx] = bus
                     _buses.value = list
+                }
+            }
+        } else if (addr.startsWith("/headamp/")) {
+            val parts = addr.split("/")
+            if (parts.size >= 3) {
+                val chIdx = parts[2].toIntOrNull()?.minus(1) ?: return
+                if (chIdx in _channels.value.indices) {
+                    val list = _channels.value.toMutableList()
+                    var ch = list[chIdx].copy()
+                    if (addr.endsWith("/gain") && msg.arguments.isNotEmpty()) {
+                        ch.inputGain = (msg.arguments[0] as? Number)?.toFloat() ?: ch.inputGain
+                    } else if (addr.endsWith("/phantom") && msg.arguments.isNotEmpty()) {
+                        ch.phantomPower = (msg.arguments[0] as? Number)?.toInt() == 1
+                    } else if (addr.endsWith("/hpon") && msg.arguments.isNotEmpty()) {
+                        ch.lowCutActive = (msg.arguments[0] as? Number)?.toInt() == 1
+                    } else if (addr.endsWith("/hpf") && msg.arguments.isNotEmpty()) {
+                        ch.lowCutFreq = (msg.arguments[0] as? Number)?.toFloat() ?: ch.lowCutFreq
+                    }
+                    list[chIdx] = ch
+                    _channels.value = list.toList()
                 }
             }
         }

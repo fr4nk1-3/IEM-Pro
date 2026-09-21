@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -32,6 +33,7 @@ import com.example.model.ChannelState
 import com.example.ui.IemViewModel
 import com.example.ui.components.*
 import com.example.ui.theme.*
+import com.example.ui.util.HapticFeedbackHelper
 
 @Composable
 fun DashboardScreen(
@@ -65,6 +67,7 @@ fun DashboardScreen(
     val groupListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
     val activeBus = buses.getOrNull(activeBusIndex)
@@ -72,9 +75,9 @@ fun DashboardScreen(
 
     val isGroupsEnabled = activeProfile?.groupsEnabled ?: true
 
-    val categories = remember(customGroups, isGroupsEnabled) {
+    val categories = remember(isGroupsEnabled) {
         if (isGroupsEnabled) {
-            listOf("All", "Groups") + customGroups.keys.toList()
+            listOf("All", "Groups")
         } else {
             listOf("All")
         }
@@ -519,6 +522,7 @@ fun DashboardScreen(
                             viewModel.updateMasterBusLevel(activeBusIndex, newLvl)
                         },
                         onMasterMuteToggle = {
+                            HapticFeedbackHelper.triggerBusMuteFeedback(context, haptic)
                             viewModel.toggleMasterBusMute(activeBusIndex)
                         },
                         cardWidth = masterCardWidth,

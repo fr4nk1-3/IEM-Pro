@@ -259,6 +259,7 @@ fun DiscoveryScreen(
                     onClick = {
                         userInitiatedConnect = true
                         viewModel.startSimulatorMode()
+                        onNavigateToProfiles()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -538,10 +539,11 @@ fun DiscoveryScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                userInitiatedConnect = true
                                 if (mixer.status == ConnectionStatus.SIMULATION) {
                                     viewModel.startSimulatorMode()
+                                    onNavigateToProfiles()
                                 } else {
+                                    userInitiatedConnect = true
                                     viewModel.connectToMixer(mixer.ip, mixer.port)
                                 }
                             },
@@ -665,10 +667,11 @@ fun DiscoveryScreen(
                             } else {
                                 Button(
                                     onClick = {
-                                        userInitiatedConnect = true
                                         if (mixer.status == ConnectionStatus.SIMULATION) {
                                             viewModel.startSimulatorMode()
+                                            onNavigateToProfiles()
                                         } else {
+                                            userInitiatedConnect = true
                                             viewModel.connectToMixer(mixer.ip, mixer.port)
                                         }
                                     },

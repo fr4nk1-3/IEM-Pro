@@ -35,7 +35,7 @@ fun ConnectionHeader(
     role: UserRole,
     buses: List<MixBusState> = emptyList(),
     activeBusIndex: Int = 0,
-    appThemeMode: AppThemeMode = AppThemeMode.GLASSMORPHISM,
+    appThemeMode: AppThemeMode = AppThemeMode.CQ_MIXPAD,
     onSelectBus: (Int) -> Unit = {},
     onSelectThemeMode: (AppThemeMode) -> Unit = {},
     onOpenDiscovery: () -> Unit,
@@ -45,8 +45,6 @@ fun ConnectionHeader(
     onSyncMixer: () -> Unit = {},
     onReconnect: () -> Unit = {}
 ) {
-    var showThemeMenu by remember { mutableStateOf(false) }
-
     // Track reconnection attempts to show CHANGE button if reconnect fails
     var hasAttemptedReconnect by remember(mixerInfo.ip, mixerInfo.port) { mutableStateOf(false) }
 
@@ -119,66 +117,20 @@ fun ConnectionHeader(
                     }
                 }
 
-                // Theme Mode Switcher
-                Box {
-                    IconButton(
-                        onClick = { showThemeMenu = true },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = when (appThemeMode) {
-                                AppThemeMode.CQ_MIXPAD -> Icons.Default.Equalizer
-                                AppThemeMode.LIGHT -> Icons.Default.LightMode
-                                AppThemeMode.GLASSMORPHISM -> Icons.Default.AutoAwesome
-                            },
-                            contentDescription = "Theme Mode",
-                            tint = if (appThemeMode == AppThemeMode.CQ_MIXPAD || appThemeMode == AppThemeMode.GLASSMORPHISM) NeonCyan else TextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showThemeMenu,
-                        onDismissRequest = { showThemeMenu = false },
-                        modifier = Modifier.background(DarkSurface)
-                    ) {
-                        AppThemeMode.entries.forEach { mode ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = when (mode) {
-                                                AppThemeMode.CQ_MIXPAD -> Icons.Default.Equalizer
-                                                AppThemeMode.LIGHT -> Icons.Default.LightMode
-                                                AppThemeMode.GLASSMORPHISM -> Icons.Default.AutoAwesome
-                                            },
-                                            contentDescription = null,
-                                            tint = if (appThemeMode == mode) NeonCyan else TextSecondary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text(
-                                                text = mode.displayName,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (appThemeMode == mode) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (appThemeMode == mode) NeonCyan else TextPrimary
-                                            )
-                                            Text(
-                                                text = mode.description,
-                                                fontSize = 10.sp,
-                                                color = TextMuted
-                                            )
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    onSelectThemeMode(mode)
-                                    showThemeMenu = false
-                                }
-                            )
-                        }
-                    }
+                // Theme Mode 1-Tap Quick Toggle (Metallic Grey <-> Light Studio)
+                IconButton(
+                    onClick = {
+                        val nextMode = if (appThemeMode == AppThemeMode.LIGHT) AppThemeMode.CQ_MIXPAD else AppThemeMode.LIGHT
+                        onSelectThemeMode(nextMode)
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = if (appThemeMode == AppThemeMode.LIGHT) Icons.Default.DarkMode else Icons.Default.LightMode,
+                        contentDescription = if (appThemeMode == AppThemeMode.LIGHT) "Switch to Metallic Grey Theme" else "Switch to Light Studio Theme",
+                        tint = if (appThemeMode == AppThemeMode.LIGHT) NeonAmber else NeonCyan,
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
 
                 IconButton(

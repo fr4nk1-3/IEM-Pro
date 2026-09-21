@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -7,9 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -28,17 +26,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.model.AppThemeMode
 import com.example.model.BusTapMode
+import com.example.model.ChannelState
 import com.example.model.MixBusState
 import com.example.model.X32Color
 import com.example.ui.IemViewModel
 import com.example.ui.components.HorizontalMeterBar
 import com.example.ui.theme.*
+import com.example.ui.util.HapticFeedbackHelper
 
 @Composable
 fun EngineerScreen(
@@ -48,9 +49,13 @@ fun EngineerScreen(
     val userRole by viewModel.userRole.collectAsState()
     val channels by viewModel.channels.collectAsState()
     val buses by viewModel.buses.collectAsState()
-    val appThemeMode by viewModel.appThemeMode.collectAsState()
-    val talkbackGain by viewModel.talkbackMicGain.collectAsState()
-    val isTalkbackEngaged by viewModel.isTalkbackEngaged.collectAsState()
+
+    val activeProfile by viewModel.activeProfile.collectAsState()
+    val activeBusIndex by viewModel.activeBusIndex.collectAsState()
+    val profileDefaultBusId = (activeProfile?.assignedBusId ?: (activeBusIndex + 1)).coerceIn(1, 16)
+
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
 
     var pinInput by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
@@ -71,14 +76,31 @@ fun EngineerScreen(
         }
     }
 
-    // Mixbus Selection State
-    var selectedBusId by remember { mutableIntStateOf(1) }
-    val selectedBus = buses.firstOrNull { it.id == selectedBusId } ?: buses.firstOrNull()
+    // Mixbus Selection State - restricted only to the mixbus selected by the user at setup
+    val availableBuses = remember(buses, profileDefaultBusId) {
+        val assigned = buses.firstOrNull { it.id == profileDefaultBusId }
+        val filtered = buses.filter { bus ->
+            bus.id == profileDefaultBusId || (assigned?.isStereoLinked == true && bus.id == assigned.linkedBusId)
+        }
+        if (filtered.isNotEmpty()) filtered else listOfNotNull(assigned ?: buses.firstOrNull())
+    }
+
+    var selectedBusId by remember(profileDefaultBusId) { mutableIntStateOf(profileDefaultBusId) }
+
+    LaunchedEffect(availableBuses, profileDefaultBusId) {
+        if (availableBuses.none { it.id == selectedBusId }) {
+            selectedBusId = profileDefaultBusId
+        }
+    }
+
+    val selectedBus = availableBuses.firstOrNull { it.id == selectedBusId }
+        ?: availableBuses.firstOrNull()
+        ?: buses.firstOrNull { it.id == profileDefaultBusId }
 
     var editBusName by remember { mutableStateOf(selectedBus?.name ?: "") }
     var editBusColor by remember { mutableStateOf(selectedBus?.color ?: X32Color.CYAN) }
 
-    LaunchedEffect(selectedBusId) {
+    LaunchedEffect(selectedBusId, selectedBus?.name, selectedBus?.color) {
         selectedBus?.let {
             editBusName = it.name
             editBusColor = it.color
@@ -198,20 +220,6 @@ fun EngineerScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
                     }
                     Spacer(modifier = Modifier.width(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(NeonAmber)
-                            .padding(horizontal = 5.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "CQ",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color.Black
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "ENGINEER CONSOLE",
                         fontSize = 14.sp,
@@ -221,7 +229,10 @@ fun EngineerScreen(
                 }
 
                 Button(
-                    onClick = { viewModel.lockEngineerMode() },
+                    onClick = {
+                        viewModel.lockEngineerMode()
+                        onBackToDashboard()
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
@@ -233,12 +244,11 @@ fun EngineerScreen(
 
             HorizontalDivider(color = DarkBorder)
 
-            // Scrollable Tab Navigation Bar for Scaling across Small and Large screens
-            ScrollableTabRow(
-                selectedTabIndex = activeTab,
+            // Tab Navigation Bar
+            TabRow(
+                selectedTabIndex = activeTab.coerceIn(0, 1),
                 containerColor = DarkSurface,
                 contentColor = NeonCyan,
-                edgePadding = 8.dp,
                 divider = { HorizontalDivider(color = DarkBorder) }
             ) {
                 Tab(
@@ -259,18 +269,12 @@ fun EngineerScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("MIXBUSES & EQ (1-16)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                    }
-                )
-                Tab(
-                    selected = activeTab == 2,
-                    onClick = { activeTab = 2 },
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("TALKBACK & ROUTING", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            val tabLabel = if (availableBuses.size > 1) {
+                                "MIXBUS ${availableBuses.first().id}+${availableBuses.last().id} & EQ"
+                            } else {
+                                "MIXBUS $profileDefaultBusId & EQ"
+                            }
+                            Text(tabLabel, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                 )
@@ -321,6 +325,9 @@ fun EngineerScreen(
                                     ChannelDetailControls(
                                         channel = selectedChannel,
                                         viewModel = viewModel,
+                                        buses = availableBuses,
+                                        selectedBusId = selectedBusId,
+                                        profileDefaultBusId = profileDefaultBusId,
                                         editChName = editChName,
                                         onNameChange = { editChName = it },
                                         editChColor = editChColor,
@@ -379,6 +386,9 @@ fun EngineerScreen(
                                     ChannelDetailControls(
                                         channel = selectedChannel,
                                         viewModel = viewModel,
+                                        buses = availableBuses,
+                                        selectedBusId = selectedBusId,
+                                        profileDefaultBusId = profileDefaultBusId,
                                         editChName = editChName,
                                         onNameChange = { editChName = it },
                                         editChColor = editChColor,
@@ -391,17 +401,27 @@ fun EngineerScreen(
                     }
 
                     1 -> {
-                        // MIXBUSES & EQ TAB
-                        if (isCompact) {
-                            Column(modifier = Modifier.fillMaxSize()) {
+                        // MIXBUS & EQ TAB - Restrict mixbus available to user's assigned mixbus from setup
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            if (availableBuses.size > 1) {
+                                // In stereo link mode, allow switching between the paired stereo channels
                                 LazyRow(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .background(DarkSurfaceVariant)
-                                        .padding(vertical = 6.dp, horizontal = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        .padding(vertical = 6.dp, horizontal = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    items(buses) { bus ->
+                                    item {
+                                        Text(
+                                            text = "ASSIGNED STEREO PAIR:",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                    items(availableBuses) { bus ->
                                         val isSelected = bus.id == selectedBusId
                                         FilterChip(
                                             selected = isSelected,
@@ -424,96 +444,20 @@ fun EngineerScreen(
                                         )
                                     }
                                 }
-
-                                if (selectedBus != null) {
-                                    MixbusDetailControls(
-                                        bus = selectedBus,
-                                        viewModel = viewModel,
-                                        editBusName = editBusName,
-                                        onNameChange = { editBusName = it },
-                                        editBusColor = editBusColor,
-                                        onColorChange = { editBusColor = it },
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
                             }
-                        } else {
-                            Row(modifier = Modifier.fillMaxSize()) {
-                                val leftWidth = (screenWidth * 0.25f).coerceIn(130.dp, 190.dp)
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .width(leftWidth)
-                                        .fillMaxHeight()
-                                        .background(DarkSurfaceVariant)
-                                        .padding(vertical = 4.dp)
-                                ) {
-                                    items(buses) { bus ->
-                                        val isSelected = bus.id == selectedBusId
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(if (isSelected) DarkSurface else Color.Transparent)
-                                                .clickable { selectedBusId = bus.id }
-                                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(10.dp)
-                                                    .clip(CircleShape)
-                                                    .background(bus.color.composeColor)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        text = "BUS ${bus.id.toString().padStart(2, '0')}",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = if (isSelected) NeonCyan else TextSecondary
-                                                    )
-                                                    if (bus.isStereoLinked) {
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("ST", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = NeonEmerald)
-                                                    }
-                                                }
-                                                Text(
-                                                    text = bus.name,
-                                                    fontSize = 11.sp,
-                                                    color = TextPrimary,
-                                                    maxLines = 1
-                                                )
-                                            }
-                                        }
-                                        HorizontalDivider(color = DarkBorder, thickness = 0.5.dp)
-                                    }
-                                }
 
-                                if (selectedBus != null) {
-                                    MixbusDetailControls(
-                                        bus = selectedBus,
-                                        viewModel = viewModel,
-                                        editBusName = editBusName,
-                                        onNameChange = { editBusName = it },
-                                        editBusColor = editBusColor,
-                                        onColorChange = { editBusColor = it },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
+                            if (selectedBus != null) {
+                                MixbusDetailControls(
+                                    bus = selectedBus,
+                                    viewModel = viewModel,
+                                    editBusName = editBusName,
+                                    onNameChange = { editBusName = it },
+                                    editBusColor = editBusColor,
+                                    onColorChange = { editBusColor = it },
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
                         }
-                    }
-
-                    2 -> {
-                        // TALKBACK & MATRIX ROUTING TAB
-                        TalkbackRoutingConsole(
-                            buses = buses,
-                            viewModel = viewModel,
-                            talkbackGain = talkbackGain,
-                            isTalkbackEngaged = isTalkbackEngaged,
-                            appThemeMode = appThemeMode,
-                            modifier = Modifier.fillMaxSize()
-                        )
                     }
                 }
             }
@@ -525,35 +469,287 @@ fun EngineerScreen(
 private fun ChannelDetailControls(
     channel: com.example.model.ChannelState,
     viewModel: IemViewModel,
+    buses: List<MixBusState>,
+    selectedBusId: Int,
+    profileDefaultBusId: Int,
     editChName: String,
     onNameChange: (String) -> Unit,
     editChColor: X32Color,
     onColorChange: (X32Color) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val targetBus = buses.firstOrNull { it.id == selectedBusId } ?: buses.firstOrNull()
+    val targetBusIndex = (targetBus?.id?.minus(1) ?: (selectedBusId - 1)).coerceIn(0, 15)
+    val isStereoBus = targetBus?.isStereoLinked == true
+    val sendLevel = channel.busSendLevels.getOrElse(targetBusIndex) { 0.75f }
+    val isSendMuted = channel.busSendMutes.getOrElse(targetBusIndex) { false }
+    val sendPan = channel.busSendPans.getOrElse(targetBusIndex) { 0.5f }
+
     Column(
         modifier = modifier
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            text = "CHANNEL ${channel.id}: ${channel.name}",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(channel.color.composeColor)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "CHANNEL ${channel.id}: ${channel.name}",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+
+            // Signal LED indicator
+            val isClipping = channel.peakMeter >= 0.88f
+            val hasSignal = channel.peakMeter >= 0.05f
+            val sigColor = when {
+                isClipping -> NeonRose
+                hasSignal -> NeonEmerald
+                else -> Color(0xFF1E293B)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(sigColor)
+                        .border(0.5.dp, if (isClipping || hasSignal) sigColor else Color(0xFF334155), CircleShape)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (isClipping) "CLIP" else if (hasSignal) "SIG" else "IDLE",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isClipping) NeonRose else if (hasSignal) NeonEmerald else TextMuted
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Headamp Gain & Phantom Power
+        // MIXBUS SEND & STEREO PANNING CARD
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = DarkSurface)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text("HEADAMP / INPUT GAIN", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "MIXBUS SEND (${targetBus?.name ?: "Bus $selectedBusId"})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NeonCyan
+                            )
+                            if (selectedBusId == profileDefaultBusId) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(NeonAmber.copy(alpha = 0.2f))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text("PROFILE DEFAULT", fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, color = NeonAmber)
+                                }
+                            }
+                        }
+                        Text(
+                            text = "Bus ${targetBus?.id ?: selectedBusId} • " + if (isStereoBus) "Stereo Linked (Bus ${targetBus?.id}+${targetBus?.linkedBusId})" else "Mono Console Bus",
+                            fontSize = 10.sp,
+                            color = if (isStereoBus) NeonEmerald else TextSecondary
+                        )
+                    }
+
+                    // Stereo / Mono Badge
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isStereoBus) NeonEmerald.copy(alpha = 0.15f) else DarkSurfaceVariant)
+                            .border(0.5.dp, if (isStereoBus) NeonEmerald.copy(alpha = 0.5f) else DarkBorder, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (isStereoBus) "STEREO" else "MONO",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isStereoBus) NeonEmerald else TextMuted
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Send Level and Send Mute Controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Send Level to Bus ${targetBus?.id ?: selectedBusId}:", fontSize = 11.sp, color = TextPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (isSendMuted) "MUTED" else ChannelState.faderToDbString(sendLevel),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSendMuted) NeonRose else NeonCyan
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { viewModel.toggleChannelBusMute(channel.id, targetBusIndex) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isSendMuted) NeonRose else DarkSurfaceVariant,
+                                contentColor = if (isSendMuted) Color.White else TextSecondary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.height(24.dp)
+                        ) {
+                            Text(if (isSendMuted) "MUTED" else "MUTE", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Slider(
+                    value = sendLevel,
+                    onValueChange = { newLvl ->
+                        viewModel.updateChannelBusLevel(channel.id, targetBusIndex, newLvl)
+                    },
+                    valueRange = 0f..1f
+                )
+
+                // PANNING SECTION - "only shows up when the users selected mixbus is stereo and is off when the mixbus is a mono from the console"
+                // "The Paning under channels should only affect the selected mixbus only."
+                if (isStereoBus) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = DarkBorder, thickness = 0.5.dp)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val panPct = ((sendPan - 0.5f) * 200).toInt()
+                    val panLabel = when {
+                        panPct < -2 -> "L${-panPct}%"
+                        panPct > 2 -> "R${panPct}%"
+                        else -> "CENTER"
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = NeonEmerald,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "STEREO BUS PANNING",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NeonEmerald
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = panLabel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (panPct == 0) NeonCyan else NeonEmerald
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            TextButton(
+                                onClick = { viewModel.updateChannelBusPan(channel.id, targetBusIndex, 0.5f) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 1.dp),
+                                modifier = Modifier.height(22.dp)
+                            ) {
+                                Text("Reset C", fontSize = 9.sp, color = TextSecondary)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "L",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (sendPan < 0.48f) NeonEmerald else TextSecondary,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+
+                        Slider(
+                            value = sendPan,
+                            onValueChange = { newPan ->
+                                viewModel.updateChannelBusPan(channel.id, targetBusIndex, newPan)
+                            },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Text(
+                            text = "R",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (sendPan > 0.52f) NeonEmerald else TextSecondary,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Headamp Gain, Phantom Power & Dedicated Console Low Cut (HPF)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("HEADAMP & PREAMP CONFIGURATION", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(DarkSurfaceVariant)
+                            .border(0.5.dp, DarkBorder, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("ANALOG PREAMP", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // Phantom power and gain
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -585,8 +781,125 @@ private fun ChannelDetailControls(
                     },
                     valueRange = 0f..1f
                 )
+
+                HorizontalDivider(color = DarkBorder, modifier = Modifier.padding(vertical = 10.dp))
+
+                // Dedicated Low Cut / High Pass Filter (HPF)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "DEDICATED LOW CUT (HPF)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (channel.lowCutActive) NeonCyan else TextSecondary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(if (channel.lowCutActive) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceVariant)
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = if (channel.lowCutActive) "12 dB/OCT" else "INACTIVE",
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (channel.lowCutActive) NeonCyan else TextMuted
+                                )
+                            }
+                        }
+                        Text(
+                            text = if (channel.lowCutActive) "High-pass roll-off active at ${channel.lowCutFreq.toInt()} Hz" else "Dedicated Console Low Cut Bypassed",
+                            fontSize = 9.sp,
+                            color = if (channel.lowCutActive) TextSecondary else TextMuted
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (channel.lowCutActive) "${channel.lowCutFreq.toInt()} Hz" else "OFF",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (channel.lowCutActive) NeonCyan else TextMuted
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Switch(
+                            checked = channel.lowCutActive,
+                            onCheckedChange = { viewModel.toggleEngineerLowCut(channel.id) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = NeonCyan,
+                                checkedTrackColor = NeonCyan.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                }
+
+                if (channel.lowCutActive) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Cutoff Frequency:", fontSize = 10.sp, color = TextSecondary)
+                        Text(
+                            text = "${channel.lowCutFreq.toInt()} Hz",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonAmber
+                        )
+                    }
+
+                    Slider(
+                        value = channel.lowCutFreq,
+                        onValueChange = { newFreq ->
+                            viewModel.updateEngineerLowCutFreq(channel.id, newFreq)
+                        },
+                        valueRange = 20f..400f,
+                        steps = 37 // Step by ~10Hz
+                    )
+
+                    // Quick Frequency Preset Chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(40f, 80f, 100f, 120f, 160f, 200f).forEach { presetHz ->
+                            val isSelected = Math.abs(channel.lowCutFreq - presetHz) < 3f
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.updateEngineerLowCutFreq(channel.id, presetHz) },
+                                label = {
+                                    Text(
+                                        text = "${presetHz.toInt()}Hz",
+                                        fontSize = 9.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeonCyan,
+                                    selectedLabelColor = Color.Black,
+                                    containerColor = DarkSurfaceVariant,
+                                    labelColor = TextPrimary
+                                ),
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Read-only Channel Parametric EQ Visualizer (Console Setup View)
+        ChannelEqViewCard(channel = channel)
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -658,6 +971,9 @@ private fun MixbusDetailControls(
     onColorChange: (X32Color) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
     Column(
         modifier = modifier
             .padding(12.dp)
@@ -758,32 +1074,47 @@ private fun MixbusDetailControls(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Real-time Master Output Audio Meter Bar
+                // Real-time Master Output Audio Meter Bar (Dual L/R for stereo, single meter for mono)
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("L", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted, modifier = Modifier.width(12.dp))
-                        HorizontalMeterBar(
-                            level = bus.peakMeterL,
-                            isMuted = bus.masterMute,
-                            modifier = Modifier.weight(1f),
-                            height = 6.dp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("R", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted, modifier = Modifier.width(12.dp))
-                        HorizontalMeterBar(
-                            level = bus.peakMeterR,
-                            isMuted = bus.masterMute,
-                            modifier = Modifier.weight(1f),
-                            height = 6.dp
-                        )
+                    if (bus.isStereoLinked) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("L", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted, modifier = Modifier.width(12.dp))
+                            HorizontalMeterBar(
+                                level = bus.peakMeterL,
+                                isMuted = bus.masterMute,
+                                modifier = Modifier.weight(1f),
+                                height = 6.dp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("R", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted, modifier = Modifier.width(12.dp))
+                            HorizontalMeterBar(
+                                level = bus.peakMeterR,
+                                isMuted = bus.masterMute,
+                                modifier = Modifier.weight(1f),
+                                height = 6.dp
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("M", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted, modifier = Modifier.width(12.dp))
+                            HorizontalMeterBar(
+                                level = bus.peakMeter,
+                                isMuted = bus.masterMute,
+                                modifier = Modifier.weight(1f),
+                                height = 8.dp
+                            )
+                        }
                     }
                 }
 
@@ -794,7 +1125,10 @@ private fun MixbusDetailControls(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
-                        onClick = { viewModel.toggleMasterBusMute(bus.id - 1) },
+                        onClick = {
+                            HapticFeedbackHelper.triggerBusMuteFeedback(context, haptic)
+                            viewModel.toggleMasterBusMute(bus.id - 1)
+                        },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (bus.masterMute) NeonRose else DarkSurfaceVariant
                         ),
@@ -810,14 +1144,35 @@ private fun MixbusDetailControls(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    Slider(
-                        value = bus.masterLevel,
-                        onValueChange = { newLvl ->
-                            viewModel.updateMasterBusLevel(bus.id - 1, newLvl)
-                        },
-                        valueRange = 0f..1f,
-                        modifier = Modifier.weight(1f)
-                    )
+                    val maxFader = bus.getMaxFaderLevel()
+                    Column(modifier = Modifier.weight(1f)) {
+                        Slider(
+                            value = bus.masterLevel.coerceAtMost(maxFader),
+                            onValueChange = { newLvl ->
+                                viewModel.updateMasterBusLevel(bus.id - 1, newLvl.coerceAtMost(maxFader))
+                            },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (bus.limiterActive) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Limiter Cap: ${bus.limiterThresholdDb.toInt()} dBFS",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonRose
+                                )
+                                Text(
+                                    text = "Fader locked above limit",
+                                    fontSize = 9.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -864,7 +1219,7 @@ private fun MixbusDetailControls(
                 }
 
                 Text(
-                    text = "Protects musician ears from feedback or transient spikes",
+                    text = "Protects musician ears: Bus fader is locked from going up past the set threshold.",
                     fontSize = 10.sp,
                     color = TextSecondary
                 )
@@ -876,9 +1231,9 @@ private fun MixbusDetailControls(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Limiter Threshold:", fontSize = 10.sp, color = TextPrimary)
+                        Text("Limiter Threshold (Fader Cap):", fontSize = 10.sp, color = TextPrimary)
                         Text(
-                            text = "${bus.limiterThresholdDb.toInt()} dBFS",
+                            text = "${bus.limiterThresholdDb.toInt()} dBFS (Max Fader: ${(bus.getMaxFaderLevel() * 100).toInt()}%)",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = NeonRose
@@ -1038,6 +1393,524 @@ private fun MixbusDetailControls(
                     modifier = Modifier.align(Alignment.End)
                 ) {
                     Text("Save Bus Settings", color = Color.White)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelEqViewCard(
+    channel: ChannelState,
+    modifier: Modifier = Modifier
+) {
+    // selectedBandIndex: -1 = Dedicated HPF, 0..3 = PEQ Bands 1..4
+    var selectedBandIndex by remember { mutableIntStateOf(0) }
+    val bands = channel.eqBands
+    val activeBand = if (selectedBandIndex in bands.indices) bands[selectedBandIndex] else null
+
+    val cEmerald = NeonEmerald
+    val cSecondary = TextSecondary
+    val cAmber = NeonAmber
+    val cPrimary = TextPrimary
+    val cCyan = NeonCyan
+    val bandColors = listOf(NeonCyan, NeonAmber, NeonEmerald, NeonPurple, NeonMagenta, NeonRose)
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.GraphicEq,
+                        contentDescription = null,
+                        tint = if (channel.eqActive || channel.lowCutActive) cEmerald else cSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "CHANNEL EQ & LOW CUT RESPONSE",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (channel.eqActive || channel.lowCutActive) cEmerald else cSecondary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(DarkSurfaceVariant)
+                                    .border(0.5.dp, DarkBorder, RoundedCornerShape(3.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text("CONSOLE SYNC", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                            }
+                        }
+                        Text(
+                            text = buildString {
+                                append(if (channel.eqActive) "4-Band PEQ ON" else "PEQ Bypassed")
+                                append(" • ")
+                                append(if (channel.lowCutActive) "Dedicated HPF ${channel.lowCutFreq.toInt()}Hz" else "HPF OFF")
+                            },
+                            fontSize = 9.sp,
+                            color = if (channel.eqActive || channel.lowCutActive) cEmerald.copy(alpha = 0.8f) else TextMuted
+                        )
+                    }
+                }
+
+                // Status Badges
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (channel.lowCutActive) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(NeonCyan.copy(alpha = 0.15f))
+                                .border(0.5.dp, NeonCyan.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "HPF ${channel.lowCutFreq.toInt()}Hz",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NeonCyan
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (channel.eqActive) cEmerald.copy(alpha = 0.15f) else DarkSurfaceVariant)
+                            .border(0.5.dp, if (channel.eqActive) cEmerald.copy(alpha = 0.5f) else DarkBorder, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = if (channel.eqActive) "EQ ON" else "BYPASS",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (channel.eqActive) cEmerald else TextMuted
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Canvas Frequency Response Curve Visualizer
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DarkBackground)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    if (w <= 0f || h <= 0f) return@Canvas
+                    val zeroY = h / 2f
+
+                    // Gridlines (+15dB, 0dB, -15dB)
+                    drawLine(Color(0xFF2A2E3D), Offset(0f, 0.15f * h), Offset(w, 0.15f * h), strokeWidth = 1f)
+                    drawLine(Color(0xFF3A4050), Offset(0f, zeroY), Offset(w, zeroY), strokeWidth = 1.5f)
+                    drawLine(Color(0xFF2A2E3D), Offset(0f, 0.85f * h), Offset(w, 0.85f * h), strokeWidth = 1f)
+
+                    // Frequency Gridlines (100Hz, 1kHz, 10kHz)
+                    listOf(100f, 1000f, 10000f).forEach { freq ->
+                        val logFrac = (Math.log10(freq.toDouble() / 20.0) / Math.log10(20000.0 / 20.0)).toFloat()
+                        val x = logFrac * w
+                        drawLine(Color(0xFF2A2E3D), Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+                    }
+
+                    if ((channel.eqActive && bands.isNotEmpty()) || channel.lowCutActive) {
+                        val path = Path()
+                        val pointsCount = 120
+                        for (i in 0..pointsCount) {
+                            val frac = i / pointsCount.toFloat()
+                            val freq = 20f * Math.pow(1000.0, frac.toDouble()).toFloat()
+
+                            var totalGainDb = 0f
+
+                            // Dedicated Console Low Cut (HPF) 2nd order Butterworth response: -12dB/oct roll-off
+                            if (channel.lowCutActive) {
+                                val fRatio = freq / channel.lowCutFreq.coerceAtLeast(10f)
+                                val hpfAtten = -10f * kotlin.math.log10(1f + (1f / (fRatio * fRatio * fRatio * fRatio)).coerceAtLeast(0.00001f))
+                                totalGainDb += hpfAtten
+                            }
+
+                            // 4-band Parametric EQ response
+                            if (channel.eqActive) {
+                                bands.forEach { b ->
+                                    val fRatio = freq / b.freqHz.coerceAtLeast(10f)
+                                    val q = b.qFactor.coerceAtLeast(0.1f)
+                                    val gainResponse = b.gainDb / (1f + q * q * (fRatio - 1f / fRatio) * (fRatio - 1f / fRatio))
+                                    totalGainDb += gainResponse
+                                }
+                            }
+
+                            val y = zeroY - (totalGainDb / 15f) * (h * 0.35f)
+                            val x = frac * w
+
+                            if (i == 0) path.moveTo(x, y.coerceIn(0f, h))
+                            else path.lineTo(x, y.coerceIn(0f, h))
+                        }
+
+                        drawPath(
+                            path = path,
+                            color = cEmerald,
+                            style = Stroke(width = 3f)
+                        )
+
+                        // If Low Cut active, draw dedicated HPF cutoff vertical reference line and marker
+                        if (channel.lowCutActive) {
+                            val hpfLogFrac = (Math.log10(channel.lowCutFreq.toDouble() / 20.0) / Math.log10(20000.0 / 20.0)).toFloat()
+                            val hpfX = (hpfLogFrac * w).coerceIn(4f, w - 4f)
+                            drawLine(
+                                color = cCyan.copy(alpha = 0.6f),
+                                start = Offset(hpfX, 0f),
+                                end = Offset(hpfX, h),
+                                strokeWidth = 1.5f
+                            )
+                            val isHpfSel = selectedBandIndex == -1
+                            drawCircle(
+                                color = if (isHpfSel) Color.White else cCyan,
+                                radius = if (isHpfSel) 8f else 5f,
+                                center = Offset(hpfX, zeroY - (-3f / 15f) * (h * 0.35f))
+                            )
+                        }
+
+                        // Draw band marker dots
+                        if (channel.eqActive) {
+                            bands.forEachIndexed { idx, band ->
+                                val logFrac = (Math.log10(band.freqHz.toDouble() / 20.0) / Math.log10(20000.0 / 20.0)).toFloat()
+                                val dotX = logFrac * w
+                                val dotY = zeroY - (band.gainDb / 15f) * (h * 0.35f)
+                                val color = bandColors.getOrElse(idx) { cCyan }
+                                val isSel = idx == selectedBandIndex
+
+                                drawCircle(
+                                    color = if (isSel) Color.White else color,
+                                    radius = if (isSel) 9f else 5f,
+                                    center = Offset(dotX.coerceIn(8f, w - 8f), dotY.coerceIn(8f, h - 8f))
+                                )
+                            }
+                        }
+                    } else {
+                        // Flat bypassed line
+                        drawLine(
+                            color = cSecondary.copy(alpha = 0.5f),
+                            start = Offset(0f, zeroY),
+                            end = Offset(w, zeroY),
+                            strokeWidth = 2f
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Selector Chips: Dedicated HPF + 4 PEQ Bands
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Dedicated HPF Chip
+                item {
+                    val isHpfSel = selectedBandIndex == -1
+                    FilterChip(
+                        selected = isHpfSel,
+                        onClick = { selectedBandIndex = -1 },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(if (channel.lowCutActive) NeonCyan else TextMuted)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (channel.lowCutActive) "HPF ${channel.lowCutFreq.toInt()}Hz" else "HPF (Off)",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = NeonCyan,
+                            selectedLabelColor = Color.Black,
+                            containerColor = DarkSurfaceVariant,
+                            labelColor = if (channel.lowCutActive) NeonCyan else TextSecondary
+                        )
+                    )
+                }
+
+                itemsIndexed(bands) { idx, band ->
+                    val isSel = idx == selectedBandIndex
+                    val bColor = bandColors.getOrElse(idx) { cCyan }
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { selectedBandIndex = idx },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(bColor)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "B${band.id} ${if (band.gainDb >= 0) "+${band.gainDb.toInt()}" else "${band.gainDb.toInt()}"}dB",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = bColor,
+                            selectedLabelColor = Color.Black,
+                            containerColor = DarkSurfaceVariant,
+                            labelColor = cPrimary
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Active Selection Detail Read-out Display (Read-Only)
+            if (selectedBandIndex == -1) {
+                // Dedicated HPF Readout
+                Surface(
+                    color = DarkSurfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (channel.lowCutActive) NeonCyan else TextMuted)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Dedicated Console Low Cut (High Pass Filter)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonCyan
+                                )
+                            }
+
+                            Text(
+                                text = "Preamp Stage",
+                                fontSize = 9.sp,
+                                color = TextMuted
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            // Status Readout
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("STATUS", fontSize = 8.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = if (channel.lowCutActive) "ACTIVE" else "BYPASSED",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (channel.lowCutActive) NeonEmerald else TextMuted
+                                )
+                            }
+
+                            // Cutoff Frequency Readout
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("CUTOFF FREQ", fontSize = 8.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = "${channel.lowCutFreq.toInt()} Hz",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonAmber
+                                )
+                            }
+
+                            // Slope Readout
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("FILTER SLOPE", fontSize = 8.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = "12 dB/Oct",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonCyan
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (activeBand != null) {
+                Surface(
+                    color = DarkSurfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(bandColors.getOrElse(selectedBandIndex) { cCyan })
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Band ${activeBand.id} (${activeBand.label})",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = bandColors.getOrElse(selectedBandIndex) { cCyan }
+                                )
+                            }
+
+                            Text(
+                                text = "Read-Only Console Sync",
+                                fontSize = 9.sp,
+                                color = TextMuted
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            // Frequency Readout
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("FREQUENCY", fontSize = 8.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = if (activeBand.freqHz >= 1000f) String.format("%.1fkHz", activeBand.freqHz / 1000f) else "${activeBand.freqHz.toInt()}Hz",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonAmber
+                                )
+                            }
+
+                            // Gain Readout
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("GAIN", fontSize = 8.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = String.format("%+.1f dB", activeBand.gainDb),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeBand.gainDb > 0.1f) NeonEmerald else if (activeBand.gainDb < -0.1f) NeonRose else TextPrimary
+                                )
+                            }
+
+                            // Q-Factor Readout
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Q FACTOR", fontSize = 8.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = String.format("Q = %.2f", activeBand.qFactor),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonCyan
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 5-Slot Summary Table (Dedicated HPF + 4 PEQ Bands)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // HPF Slot
+                val isHpfSel = selectedBandIndex == -1
+                Surface(
+                    color = if (isHpfSel) DarkSurfaceVariant.copy(alpha = 0.9f) else DarkBackground,
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(0.5.dp, if (isHpfSel) NeonCyan else DarkBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { selectedBandIndex = -1 }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("HPF", fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, color = if (channel.lowCutActive) NeonCyan else TextMuted)
+                        Text(
+                            text = if (channel.lowCutActive) "${channel.lowCutFreq.toInt()}Hz" else "OFF",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (channel.lowCutActive) TextPrimary else TextMuted
+                        )
+                        Text(
+                            text = if (channel.lowCutActive) "-12dB/o" else "PASS",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (channel.lowCutActive) NeonCyan else TextMuted
+                        )
+                    }
+                }
+
+                // PEQ Bands
+                bands.forEachIndexed { idx, band ->
+                    val bColor = bandColors.getOrElse(idx) { cCyan }
+                    val isSel = idx == selectedBandIndex
+                    Surface(
+                        color = if (isSel) DarkSurfaceVariant.copy(alpha = 0.9f) else DarkBackground,
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(0.5.dp, if (isSel) bColor else DarkBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { selectedBandIndex = idx }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("B${band.id}", fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, color = bColor)
+                            Text(
+                                text = if (band.freqHz >= 1000f) "${(band.freqHz / 1000).toInt()}k" else "${band.freqHz.toInt()}",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = String.format("%+.0fdB", band.gainDb),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (band.gainDb > 0.5f) NeonEmerald else if (band.gainDb < -0.5f) NeonRose else TextMuted
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1295,262 +2168,7 @@ private fun MixbusEqControlCard(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Quick Graphic Band Gain Sliders
-            Text("GRAPHIC BAND GAIN FADERS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = cSecondary)
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                bus.eqBands.forEachIndexed { idx, band ->
-                    val bColor = bandColors.getOrElse(idx) { cCyan }
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = if (band.gainDb >= 0) "+${band.gainDb.toInt()}" else "${band.gainDb.toInt()}",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (band.gainDb != 0f) bColor else cSecondary
-                        )
-
-                        Slider(
-                            value = band.gainDb,
-                            onValueChange = { g ->
-                                viewModel.updateBusEqBandGain(bus.id, idx, g)
-                            },
-                            valueRange = -15f..15f,
-                            modifier = Modifier.height(70.dp)
-                        )
-
-                        Text(
-                            text = "B${idx + 1}",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = bColor
-                        )
-                    }
-                }
-            }
         }
     }
 }
 
-@Composable
-private fun TalkbackRoutingConsole(
-    buses: List<MixBusState>,
-    viewModel: IemViewModel,
-    talkbackGain: Float,
-    isTalkbackEngaged: Boolean,
-    appThemeMode: AppThemeMode,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .padding(12.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Text(
-            text = "ENGINEER TALKBACK & MATRIX ROUTING",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Talkback Mic Control Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.RecordVoiceOver,
-                            contentDescription = null,
-                            tint = if (isTalkbackEngaged) NeonRose else NeonCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column {
-                            Text("ENGINEER TALKBACK MIC", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text(
-                                text = if (isTalkbackEngaged) "LIVE ON AIR" else "STANDBY / MUTED",
-                                fontSize = 10.sp,
-                                color = if (isTalkbackEngaged) NeonRose else TextSecondary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = { viewModel.toggleTalkbackEngaged() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isTalkbackEngaged) NeonRose else NeonCyan
-                        )
-                    ) {
-                        Text(
-                            text = if (isTalkbackEngaged) "TALKBACK LIVE" else "ENGAGE TALK",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            color = Color.White
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Talkback Mic Gain:", fontSize = 11.sp, color = TextPrimary)
-                    Text("${(talkbackGain * 100).toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonCyan)
-                }
-
-                Slider(
-                    value = talkbackGain,
-                    onValueChange = { viewModel.setTalkbackMicGain(it) },
-                    valueRange = 0f..1f
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Talkback Bus Matrix Routing Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("TALKBACK DESTINATION MATRIX", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonAmber)
-                    TextButton(
-                        onClick = {
-                            val allActive = buses.all { it.talkbackActive }
-                            buses.forEach { bus ->
-                                if (bus.talkbackActive == allActive) {
-                                    viewModel.toggleBusTalkback(bus.id)
-                                }
-                            }
-                        }
-                    ) {
-                        Text("TOGGLE ALL", fontSize = 10.sp, color = NeonCyan, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 120.dp),
-                    modifier = Modifier.height(280.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(buses) { bus ->
-                        val isRouted = bus.talkbackActive
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { viewModel.toggleBusTalkback(bus.id) },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isRouted) NeonAmber.copy(alpha = 0.2f) else DarkSurfaceVariant
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(bus.color.composeColor)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("BUS ${bus.id}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = TextSecondary)
-                                    Text(bus.name, fontSize = 11.sp, color = TextPrimary, maxLines = 1)
-                                }
-                                Icon(
-                                    imageVector = if (isRouted) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                                    contentDescription = null,
-                                    tint = if (isRouted) NeonAmber else TextMuted,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // App Theme Switcher Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text("UI DISPLAY THEME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NeonEmerald)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Switch visual style between Light Studio and Glassmorphism", fontSize = 10.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(AppThemeMode.entries.toTypedArray()) { mode ->
-                        val isSelected = appThemeMode == mode
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.setAppThemeMode(mode) },
-                            label = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = when (mode) {
-                                            AppThemeMode.CQ_MIXPAD -> Icons.Default.Equalizer
-                                            AppThemeMode.LIGHT -> Icons.Default.LightMode
-                                            AppThemeMode.GLASSMORPHISM -> Icons.Default.AutoAwesome
-                                        },
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(mode.displayName, fontSize = 11.sp)
-                                }
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeonCyan,
-                                selectedLabelColor = Color.White,
-                                selectedLeadingIconColor = Color.White,
-                                containerColor = DarkSurfaceVariant,
-                                labelColor = TextPrimary,
-                                iconColor = TextSecondary
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
